@@ -1,0 +1,285 @@
+<?php
+/**
+ * Email logger: records every wp_mail() call, tracks failures, supports resend.
+ *
+ * @package FlowSMTP
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+class FlowSMTP_Logger {
+
+	/**
+	 * ID of the log row for the email currently being sent.
+	 *
+	 * @var int|null
+	 */
+	private $current_log_id = null;
+
+	/**
+	 * Whether the current send is a resend (skip duplicate logging).
+	 *
+	 * @var bool
+	 */
+	private $is_resend = false;
+
+	public function __construct() {
+		add_filter( 'wp_mail', array( $this, 'capture_mail' ), PHP_INT_MAX );
+		add_action( 'wp_mail_succeeded', array( $this, 'on_mail_succeeded' ), 10, 1 );
+		add_action( 'wp_mail_failed', array( $this, 'on_mail_failed' ), 10, 1 );
+
+		// Daily retention cleanup.
+		add_action( 'flowsmtp_daily_cleanup', array( $this, 'cleanup_old_logs' ) );
+		if ( ! wp_next_scheduled( 'flowsmtp_daily_cleanup' ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'flowsmtp_daily_cleanup' );
+		}
+	}
+
+	/**
+	 * Table name helper.
+	 *
+	 * @return string
+	 */
+	public static function table() {
+		global $wpdb;
+		return $wpdb->prefix . 'flowsmtp_email_log';
+	}
+
+	/**
+	 * Log outgoing mail before it is sent.
+	 *
+	 * @param array $atts wp_mail() attributes.
+	 * @return array Unmodified attributes.
+	 */
+	public function capture_mail( $atts ) {
+		$settings = FlowSMTP::get_settings();
+
+		if ( empty( $settings['logging'] ) || $this->is_resend ) {
+			return $atts;
+		}
+
+		global $wpdb;
+
+		$to          = is_array( $atts['to'] ) ? implode( ', ', $atts['to'] ) : (string) $atts['to'];
+		$headers     = isset( $atts['headers'] ) ? ( is_array( $atts['headers'] ) ? implode( "\n", $atts['headers'] ) : (string) $atts['headers'] ) : '';
+		$attachments = isset( $atts['attachments'] ) ? ( is_array( $atts['attachments'] ) ? implode( "\n", $atts['attachments'] ) : (string) $atts['attachments'] ) : '';
+
+		$wpdb->insert(
+			self::table(),
+			array(
+				'mail_to'     => $to,
+				'subject'     => isset( $atts['subject'] ) ? (string) $atts['subject'] : '',
+				'message'     => isset( $atts['message'] ) ? (string) $atts['message'] : '',
+				'headers'     => $headers,
+				'attachments' => $attachments,
+				'status'      => 'pending',
+				'is_test'     => did_action( 'flowsmtp_sending_test_email' ) ? 1 : 0,
+				'created_at'  => current_time( 'mysql' ),
+			),
+			array( '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+		);
+
+		$this->current_log_id = (int) $wpdb->insert_id;
+
+		return $atts;
+	}
+
+	/**
+	 * Mark the current log entry as sent.
+	 *
+	 * @param array $mail_data Mail data from wp_mail_succeeded.
+	 */
+	public function on_mail_succeeded( $mail_data ) {
+		if ( $this->current_log_id ) {
+			$this->update_status( $this->current_log_id, 'sent' );
+			$this->current_log_id = null;
+		}
+	}
+
+	/**
+	 * Mark the current log entry as failed and store the error.
+	 *
+	 * @param WP_Error $error Error from wp_mail_failed.
+	 */
+	public function on_mail_failed( $error ) {
+		if ( $this->current_log_id ) {
+			$this->update_status( $this->current_log_id, 'failed', $error->get_error_message() );
+			$this->current_log_id = null;
+		}
+	}
+
+	/**
+	 * Update the status of a log row.
+	 *
+	 * @param int    $id     Log id.
+	 * @param string $status sent|failed|pending.
+	 * @param string $error  Optional error message.
+	 */
+	public function update_status( $id, $status, $error = '' ) {
+		global $wpdb;
+
+		$wpdb->update(
+			self::table(),
+			array(
+				'status'        => $status,
+				'error_message' => $error,
+				'updated_at'    => current_time( 'mysql' ),
+			),
+			array( 'id' => (int) $id ),
+			array( '%s', '%s', '%s' ),
+			array( '%d' )
+		);
+	}
+
+	/**
+	 * Get a single log row.
+	 *
+	 * @param int $id Log id.
+	 * @return object|null
+	 */
+	public function get( $id ) {
+		global $wpdb;
+		return $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $id ) );
+	}
+
+	/**
+	 * Query log rows.
+	 *
+	 * @param array $args status, search, per_page, page, orderby, order.
+	 * @return array{items: array, total: int}
+	 */
+	public function query( $args = array() ) {
+		global $wpdb;
+
+		$defaults = array(
+			'status'   => '',
+			'search'   => '',
+			'per_page' => 20,
+			'page'     => 1,
+			'orderby'  => 'created_at',
+			'order'    => 'DESC',
+		);
+		$args = wp_parse_args( $args, $defaults );
+
+		$where  = array( '1=1' );
+		$params = array();
+
+		if ( $args['status'] && in_array( $args['status'], array( 'sent', 'failed', 'pending' ), true ) ) {
+			$where[]  = 'status = %s';
+			$params[] = $args['status'];
+		}
+
+		if ( $args['search'] ) {
+			$like     = '%' . $wpdb->esc_like( $args['search'] ) . '%';
+			$where[]  = '(mail_to LIKE %s OR subject LIKE %s)';
+			$params[] = $like;
+			$params[] = $like;
+		}
+
+		$where_sql = implode( ' AND ', $where );
+
+		$orderby = in_array( $args['orderby'], array( 'created_at', 'subject', 'status', 'mail_to' ), true ) ? $args['orderby'] : 'created_at';
+		$order   = 'ASC' === strtoupper( $args['order'] ) ? 'ASC' : 'DESC';
+		$offset  = max( 0, ( (int) $args['page'] - 1 ) * (int) $args['per_page'] );
+
+		$count_sql = 'SELECT COUNT(*) FROM ' . self::table() . " WHERE {$where_sql}";
+		$total     = (int) ( $params ? $wpdb->get_var( $wpdb->prepare( $count_sql, $params ) ) : $wpdb->get_var( $count_sql ) );
+
+		$items_sql  = 'SELECT * FROM ' . self::table() . " WHERE {$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+		$params_all = array_merge( $params, array( (int) $args['per_page'], $offset ) );
+		$items      = $wpdb->get_results( $wpdb->prepare( $items_sql, $params_all ) );
+
+		return array(
+			'items' => $items,
+			'total' => $total,
+		);
+	}
+
+	/**
+	 * Dashboard stats.
+	 *
+	 * @return array
+	 */
+	public function get_stats() {
+		global $wpdb;
+
+		$rows = $wpdb->get_results( 'SELECT status, COUNT(*) AS total FROM ' . self::table() . ' GROUP BY status', OBJECT_K );
+
+		return array(
+			'sent'    => isset( $rows['sent'] ) ? (int) $rows['sent']->total : 0,
+			'failed'  => isset( $rows['failed'] ) ? (int) $rows['failed']->total : 0,
+			'pending' => isset( $rows['pending'] ) ? (int) $rows['pending']->total : 0,
+		);
+	}
+
+	/**
+	 * Resend a logged email.
+	 *
+	 * @param int $id Log id.
+	 * @return true|WP_Error
+	 */
+	public function resend( $id ) {
+		$log = $this->get( $id );
+
+		if ( ! $log ) {
+			return new WP_Error( 'flowsmtp_not_found', __( 'Log entry not found.', 'flow-smtp' ) );
+		}
+
+		$headers     = $log->headers ? explode( "\n", $log->headers ) : array();
+		$attachments = $log->attachments ? array_filter( explode( "\n", $log->attachments ), 'file_exists' ) : array();
+
+		$this->is_resend = true;
+		$sent            = wp_mail( $log->mail_to, $log->subject, $log->message, $headers, $attachments );
+		$this->is_resend = false;
+
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table() . ' SET retries = retries + 1 WHERE id = %d', $id ) );
+
+		if ( $sent ) {
+			$this->update_status( $id, 'sent' );
+			return true;
+		}
+
+		return new WP_Error( 'flowsmtp_resend_failed', __( 'Resend failed. Check the SMTP settings and the error log.', 'flow-smtp' ) );
+	}
+
+	/**
+	 * Delete log rows.
+	 *
+	 * @param int[] $ids Log ids.
+	 * @return int Rows deleted.
+	 */
+	public function delete( array $ids ) {
+		global $wpdb;
+
+		$ids = array_filter( array_map( 'absint', $ids ) );
+		if ( ! $ids ) {
+			return 0;
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		return (int) $wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table() . " WHERE id IN ({$placeholders})", $ids ) );
+	}
+
+	/**
+	 * Remove logs older than the configured retention window.
+	 */
+	public function cleanup_old_logs() {
+		$settings  = FlowSMTP::get_settings();
+		$retention = (int) $settings['log_retention'];
+
+		if ( $retention <= 0 ) {
+			return; // 0 = keep forever.
+		}
+
+		global $wpdb;
+		$wpdb->query(
+			$wpdb->prepare(
+				'DELETE FROM ' . self::table() . ' WHERE created_at < %s',
+				gmdate( 'Y-m-d H:i:s', time() - $retention * DAY_IN_SECONDS )
+			)
+		);
+	}
+}
