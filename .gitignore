@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.sublime-*
+
+# Dependencies / builds
+node_modules/
+vendor/
+*.zip
+
+# Logs
+*.log
