@@ -86,6 +86,45 @@
 				} );
 		} );
 
+		/* Deliverability: domain health check */
+		$( '#flowsmtp-run-check' ).on( 'click', function () {
+			var $btn = $( this ),
+				$out = $( '#flowsmtp-check-results' ),
+				original = $btn.text(),
+				badge = { pass: 'is-sent', warn: 'is-pending', fail: 'is-failed' };
+
+			$btn.prop( 'disabled', true ).text( FlowSMTP.i18n.checking );
+
+			ajax( 'flowsmtp_check_domain', {
+				domain: $( '#flowsmtp-check-domain' ).val(),
+				selector: $( '#flowsmtp-check-selector' ).val()
+			} )
+				.done( function ( res ) {
+					if ( ! res.success ) {
+						$out.html( '<div class="flowsmtp-notice is-error">' + escAttr( res.data.message ) + '</div>' ).prop( 'hidden', false );
+						return;
+					}
+
+					var html = '';
+					$.each( res.data.checks, function ( i, c ) {
+						html +=
+							'<li>' +
+							'<span class="flowsmtp-badge ' + ( badge[ c.status ] || 'is-pending' ) + '">' + escAttr( c.status.toUpperCase() ) + '</span>' +
+							'<strong>' + escAttr( c.label ) + '</strong>' +
+							'<span class="flowsmtp-check-detail">' + escAttr( c.detail ) + '</span>' +
+							'</li>';
+					} );
+
+					$out.html( '<ul class="flowsmtp-checklist">' + html + '</ul>' ).prop( 'hidden', false );
+				} )
+				.fail( function () {
+					$out.html( '<div class="flowsmtp-notice is-error">Request failed. Please try again.</div>' ).prop( 'hidden', false );
+				} )
+				.always( function () {
+					$btn.prop( 'disabled', false ).text( original );
+				} );
+		} );
+
 		/* Resend */
 		$( document ).on( 'click', '.flowsmtp-resend', function () {
 			var $btn = $( this ),
