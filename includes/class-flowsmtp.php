@@ -95,6 +95,8 @@ final class FlowSMTP {
 			'logging'       => 1,
 			'log_body'      => 1,
 			'log_retention' => 30,
+			'auto_retry'    => 1,
+			'max_retries'   => 3,
 		);
 
 		return wp_parse_args( (array) get_option( FLOWSMTP_OPTION_KEY, array() ), $defaults );

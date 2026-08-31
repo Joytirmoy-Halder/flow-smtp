@@ -1,6 +1,7 @@
 <?php
 /**
- * Email logger: records every wp_mail() call, tracks failures, supports resend.
+ * Email logger: records every wp_mail() call, tracks failures, supports resend
+ * and automatic retries.
  *
  * @package FlowSMTP
  */
@@ -45,6 +46,9 @@ class FlowSMTP_Logger {
 		add_filter( 'pre_wp_mail', array( $this, 'on_pre_wp_mail' ), PHP_INT_MAX, 2 );
 		add_action( 'wp_mail_succeeded', array( $this, 'on_mail_succeeded' ), 10, 1 );
 		add_action( 'wp_mail_failed', array( $this, 'on_mail_failed' ), 10, 1 );
+
+		// Automatic retry of failed sends (WP-Cron).
+		add_action( 'flowsmtp_retry_email', array( $this, 'retry_email' ) );
 
 		// Password reset emails contain live reset links: never store their body.
 		add_filter( 'retrieve_password_message', array( $this, 'flag_sensitive' ), PHP_INT_MAX );
@@ -167,7 +171,7 @@ class FlowSMTP_Logger {
 	}
 
 	/**
-	 * Mark the current log entry as failed and store the error.
+	 * Mark the current log entry as failed, store the error and queue a retry.
 	 *
 	 * @param WP_Error $error Error from wp_mail_failed.
 	 */
@@ -175,6 +179,64 @@ class FlowSMTP_Logger {
 		$id = array_pop( $this->log_id_stack );
 		if ( $id ) {
 			$this->update_status( $id, 'failed', $error->get_error_message() );
+			$this->maybe_schedule_retry( $id );
+		}
+	}
+
+	/**
+	 * Schedule an automatic retry for a failed email if enabled and the
+	 * attempt budget is not exhausted. Exponential backoff: 5, 10, 20 min…
+	 *
+	 * @param int $id Log id.
+	 */
+	public function maybe_schedule_retry( $id ) {
+		$settings = FlowSMTP::get_settings();
+
+		if ( empty( $settings['auto_retry'] ) ) {
+			return;
+		}
+
+		$log = $this->get( $id );
+		if ( ! $log || $log->is_test ) {
+			return; // Never auto-retry test emails.
+		}
+
+		$max = min( 10, max( 0, (int) $settings['max_retries'] ) );
+		if ( (int) $log->retries >= $max ) {
+			return;
+		}
+
+		/**
+		 * Filter the retry delay in seconds.
+		 *
+		 * @param int    $delay Delay in seconds.
+		 * @param object $log   Log row.
+		 */
+		$delay = (int) apply_filters( 'flowsmtp_retry_delay', 5 * MINUTE_IN_SECONDS * pow( 2, (int) $log->retries ), $log );
+
+		if ( ! wp_next_scheduled( 'flowsmtp_retry_email', array( (int) $id ) ) ) {
+			wp_schedule_single_event( time() + $delay, 'flowsmtp_retry_email', array( (int) $id ) );
+		}
+	}
+
+	/**
+	 * WP-Cron callback: retry a failed email and reschedule on failure.
+	 *
+	 * @param int $id Log id.
+	 */
+	public function retry_email( $id ) {
+		$id  = (int) $id;
+		$log = $this->get( $id );
+
+		// Only retry rows that are still failed (user may have resent manually).
+		if ( ! $log || 'failed' !== $log->status ) {
+			return;
+		}
+
+		$result = $this->resend( $id );
+
+		if ( true !== $result ) {
+			$this->maybe_schedule_retry( $id );
 		}
 	}
 
