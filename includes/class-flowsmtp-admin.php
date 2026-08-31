@@ -30,6 +30,7 @@ class FlowSMTP_Admin {
 		add_action( 'wp_ajax_flowsmtp_delete_logs', array( $this, 'ajax_delete_logs' ) );
 		add_action( 'wp_ajax_flowsmtp_view_log', array( $this, 'ajax_view_log' ) );
 		add_action( 'wp_ajax_flowsmtp_check_domain', array( $this, 'ajax_check_domain' ) );
+		add_action( 'admin_post_flowsmtp_export_csv', array( $this, 'export_csv' ) );
 	}
 
 	public function register_menu() {
@@ -406,6 +407,18 @@ class FlowSMTP_Admin {
 			$base_args['s'] = $search;
 		}
 		$base_url = add_query_arg( $base_args, admin_url( 'admin.php' ) );
+
+		$export_url = wp_nonce_url(
+			add_query_arg(
+				array(
+					'action' => 'flowsmtp_export_csv',
+					'status' => $status,
+					's'      => $search,
+				),
+				admin_url( 'admin-post.php' )
+			),
+			'flowsmtp_export'
+		);
 		?>
 		<div class="flowsmtp-table-toolbar">
 			<form method="get">
@@ -414,7 +427,10 @@ class FlowSMTP_Admin {
 				<input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search recipient or subject…', 'flow-smtp' ); ?>" />
 				<button type="submit" class="flowsmtp-btn"><?php esc_html_e( 'Search', 'flow-smtp' ); ?></button>
 			</form>
-			<button type="button" class="flowsmtp-btn is-danger" id="flowsmtp-delete-selected"><?php esc_html_e( 'Delete Selected', 'flow-smtp' ); ?></button>
+			<div class="flowsmtp-toolbar-actions">
+				<a href="<?php echo esc_url( $export_url ); ?>" class="flowsmtp-btn"><?php esc_html_e( 'Export CSV', 'flow-smtp' ); ?></a>
+				<button type="button" class="flowsmtp-btn is-danger" id="flowsmtp-delete-selected"><?php esc_html_e( 'Delete Selected', 'flow-smtp' ); ?></button>
+			</div>
 		</div>
 
 		<table class="flowsmtp-table">
@@ -474,6 +490,74 @@ class FlowSMTP_Admin {
 			</div>
 		<?php endif; ?>
 		<?php
+	}
+
+	/**
+	 * Stream the (filtered) email log as a CSV download.
+	 */
+	public function export_csv() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'flow-smtp' ), '', array( 'response' => 403 ) );
+		}
+		check_admin_referer( 'flowsmtp_export' );
+
+		$status = isset( $_GET['status'] ) ? sanitize_key( $_GET['status'] ) : '';
+		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+
+		nocache_headers();
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename=flowsmtp-logs-' . gmdate( 'Ymd-His' ) . '.csv' );
+
+		$out = fopen( 'php://output', 'w' );
+		fputcsv( $out, array( 'ID', 'To', 'Subject', 'Status', 'Test', 'Retries', 'Error', 'Created (site time)', 'Updated (site time)' ) );
+
+		$page     = 1;
+		$per_page = 500;
+
+		do {
+			$result = $this->logger->query(
+				array(
+					'status'   => $status,
+					'search'   => $search,
+					'per_page' => $per_page,
+					'page'     => $page,
+				)
+			);
+
+			foreach ( $result['items'] as $row ) {
+				fputcsv(
+					$out,
+					array(
+						(int) $row->id,
+						self::csv_safe( $row->mail_to ),
+						self::csv_safe( $row->subject ),
+						$row->status,
+						$row->is_test ? 'yes' : 'no',
+						(int) $row->retries,
+						self::csv_safe( $row->error_message ),
+						$row->created_at,
+						$row->updated_at,
+					)
+				);
+			}
+
+			$page++;
+		} while ( count( $result['items'] ) === $per_page );
+
+		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		@fclose( $out );
+		exit;
+	}
+
+	/**
+	 * Guard against CSV formula injection in spreadsheet apps.
+	 *
+	 * @param string $value Raw cell value.
+	 * @return string
+	 */
+	private static function csv_safe( $value ) {
+		$value = (string) $value;
+		return preg_match( '/^[=+\-@\t\r]/', $value ) ? "'" . $value : $value;
 	}
 
 	/* ---------------------------------------------------------------------
