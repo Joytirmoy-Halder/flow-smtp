@@ -98,6 +98,9 @@ final class FlowSMTP {
 			'log_retention' => 30,
 			'auto_retry'    => 1,
 			'max_retries'   => 3,
+			'alerts'        => 0,
+			'alert_email'   => get_option( 'admin_email' ),
+			'alert_webhook' => '',
 		);
 
 		return wp_parse_args( (array) get_option( FLOWSMTP_OPTION_KEY, array() ), $defaults );

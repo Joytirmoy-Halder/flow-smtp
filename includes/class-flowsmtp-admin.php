@@ -88,6 +88,9 @@ class FlowSMTP_Admin {
 		$clean['log_retention'] = isset( $input['log_retention'] ) ? absint( $input['log_retention'] ) : 30;
 		$clean['auto_retry']    = empty( $input['auto_retry'] ) ? 0 : 1;
 		$clean['max_retries']   = isset( $input['max_retries'] ) ? min( 10, absint( $input['max_retries'] ) ) : 3;
+		$clean['alerts']        = empty( $input['alerts'] ) ? 0 : 1;
+		$clean['alert_email']   = isset( $input['alert_email'] ) && is_email( $input['alert_email'] ) ? sanitize_email( $input['alert_email'] ) : get_option( 'admin_email' );
+		$clean['alert_webhook'] = isset( $input['alert_webhook'] ) ? esc_url_raw( trim( $input['alert_webhook'] ) ) : '';
 
 		return $clean;
 	}
@@ -303,6 +306,24 @@ class FlowSMTP_Admin {
 				</label>
 			</div>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Retries run in the background via WP-Cron. Test emails are never retried automatically.', 'flow-smtp' ); ?></p>
+
+			<h2><?php esc_html_e( 'Failure Alerts', 'flow-smtp' ); ?></h2>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[alerts]" value="1" <?php checked( $s['alerts'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Notify me when an email permanently fails (after all retries)', 'flow-smtp' ); ?>
+			</label>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'Alert email address', 'flow-smtp' ); ?></span>
+					<input type="email" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[alert_email]" value="<?php echo esc_attr( $s['alert_email'] ); ?>" />
+				</label>
+				<label>
+					<span><?php esc_html_e( 'Webhook URL (Slack / Discord compatible, optional)', 'flow-smtp' ); ?></span>
+					<input type="url" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[alert_webhook]" value="<?php echo esc_attr( $s['alert_webhook'] ); ?>" placeholder="https://hooks.slack.com/services/…" />
+				</label>
+			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Alerts are throttled to one per 5 minutes. Tip: if your SMTP server is down, the alert email may also fail — a webhook is the more reliable channel.', 'flow-smtp' ); ?></p>
 
 			<p class="flowsmtp-actions"><button type="submit" class="flowsmtp-btn is-primary"><?php esc_html_e( 'Save Settings', 'flow-smtp' ); ?></button></p>
 		</form>
