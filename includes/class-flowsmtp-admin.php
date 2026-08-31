@@ -1,6 +1,6 @@
 <?php
 /**
- * Admin UI: settings, email logs, failed emails, test email.
+ * Admin UI: settings, email logs, failed emails, deliverability, test email.
  *
  * @package FlowSMTP
  */
@@ -29,6 +29,7 @@ class FlowSMTP_Admin {
 		add_action( 'wp_ajax_flowsmtp_resend', array( $this, 'ajax_resend' ) );
 		add_action( 'wp_ajax_flowsmtp_delete_logs', array( $this, 'ajax_delete_logs' ) );
 		add_action( 'wp_ajax_flowsmtp_view_log', array( $this, 'ajax_view_log' ) );
+		add_action( 'wp_ajax_flowsmtp_check_domain', array( $this, 'ajax_check_domain' ) );
 	}
 
 	public function register_menu() {
@@ -109,6 +110,7 @@ class FlowSMTP_Admin {
 				'i18n'    => array(
 					'sending'   => __( 'Sending…', 'flow-smtp' ),
 					'resending' => __( 'Resending…', 'flow-smtp' ),
+					'checking'  => __( 'Checking…', 'flow-smtp' ),
 					'confirmDelete' => __( 'Delete the selected log entries? This cannot be undone.', 'flow-smtp' ),
 					'docs'      => __( 'Setup guide', 'flow-smtp' ),
 				),
@@ -126,10 +128,11 @@ class FlowSMTP_Admin {
 
 		$tab  = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'settings'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$tabs = array(
-			'settings' => __( 'Settings', 'flow-smtp' ),
-			'logs'     => __( 'Email Logs', 'flow-smtp' ),
-			'failed'   => __( 'Failed Emails', 'flow-smtp' ),
-			'test'     => __( 'Send Test', 'flow-smtp' ),
+			'settings'       => __( 'Settings', 'flow-smtp' ),
+			'logs'           => __( 'Email Logs', 'flow-smtp' ),
+			'failed'         => __( 'Failed Emails', 'flow-smtp' ),
+			'deliverability' => __( 'Deliverability', 'flow-smtp' ),
+			'test'           => __( 'Send Test', 'flow-smtp' ),
 		);
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = 'settings';
@@ -167,6 +170,9 @@ class FlowSMTP_Admin {
 						break;
 					case 'failed':
 						$this->render_logs( 'failed' );
+						break;
+					case 'deliverability':
+						$this->render_deliverability_tab();
 						break;
 					case 'test':
 						$this->render_test_tab();
@@ -300,6 +306,28 @@ class FlowSMTP_Admin {
 
 			<p class="flowsmtp-actions"><button type="submit" class="flowsmtp-btn is-primary"><?php esc_html_e( 'Save Settings', 'flow-smtp' ); ?></button></p>
 		</form>
+		<?php
+	}
+
+	private function render_deliverability_tab() {
+		$s      = FlowSMTP::get_settings();
+		$domain = is_email( $s['from_email'] ) ? substr( strrchr( $s['from_email'], '@' ), 1 ) : '';
+		?>
+		<h2><?php esc_html_e( 'Domain Health Check', 'flow-smtp' ); ?></h2>
+		<p class="flowsmtp-muted"><?php esc_html_e( 'Checks the DNS records that decide whether your email lands in the inbox or in spam. Run this against your From address domain.', 'flow-smtp' ); ?></p>
+		<div class="flowsmtp-grid">
+			<label>
+				<span><?php esc_html_e( 'Domain', 'flow-smtp' ); ?></span>
+				<input type="text" id="flowsmtp-check-domain" value="<?php echo esc_attr( $domain ); ?>" placeholder="example.com" />
+			</label>
+			<label>
+				<span><?php esc_html_e( 'DKIM selector (optional)', 'flow-smtp' ); ?></span>
+				<input type="text" id="flowsmtp-check-selector" placeholder="<?php esc_attr_e( 'e.g. google, selector1, k1', 'flow-smtp' ); ?>" />
+			</label>
+		</div>
+		<p class="flowsmtp-actions"><button type="button" id="flowsmtp-run-check" class="flowsmtp-btn is-primary"><?php esc_html_e( 'Run Check', 'flow-smtp' ); ?></button></p>
+		<div id="flowsmtp-check-results" hidden></div>
+		<p class="flowsmtp-muted"><?php esc_html_e( 'For a full spam-score test including content analysis, send a test email to a mail-tester.com address from the Send Test tab.', 'flow-smtp' ); ?></p>
 		<?php
 	}
 
@@ -495,5 +523,35 @@ class FlowSMTP_Admin {
 				'retries' => (int) $log->retries,
 			)
 		);
+	}
+
+	public function ajax_check_domain() {
+		$this->verify_ajax();
+
+		$domain   = isset( $_POST['domain'] ) ? sanitize_text_field( wp_unslash( $_POST['domain'] ) ) : '';
+		$selector = isset( $_POST['selector'] ) ? sanitize_text_field( wp_unslash( $_POST['selector'] ) ) : '';
+
+		$checks = FlowSMTP_Deliverability::check( $domain, $selector );
+
+		if ( is_wp_error( $checks ) ) {
+			wp_send_json_error( array( 'message' => $checks->get_error_message() ) );
+		}
+
+		// From-alignment hint: SMTP username domain vs checked domain.
+		$settings = FlowSMTP::get_settings();
+		if ( false !== strpos( $settings['username'], '@' ) ) {
+			$user_domain = strtolower( substr( strrchr( $settings['username'], '@' ), 1 ) );
+			if ( $user_domain && strtolower( trim( $domain ) ) !== $user_domain ) {
+				$checks[] = array(
+					'id'     => 'alignment',
+					'label'  => __( 'From alignment', 'flow-smtp' ),
+					'status' => 'warn',
+					/* translators: 1: SMTP username domain, 2: checked domain. */
+					'detail' => sprintf( __( 'Your SMTP username domain (%1$s) differs from the checked domain (%2$s). Make sure your provider is authorized to send for %2$s (SPF include and DKIM key).', 'flow-smtp' ), $user_domain, $domain ),
+				);
+			}
+		}
+
+		wp_send_json_success( array( 'checks' => $checks ) );
 	}
 }

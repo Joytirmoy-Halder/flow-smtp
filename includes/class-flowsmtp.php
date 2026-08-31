@@ -58,6 +58,7 @@ final class FlowSMTP {
 
 	private function includes() {
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-providers.php';
+		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-deliverability.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-logger.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-mailer.php';
 
