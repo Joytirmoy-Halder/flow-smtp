@@ -61,6 +61,7 @@ class FlowSMTP_Admin {
 		$old = FlowSMTP::get_settings();
 
 		$clean               = array();
+		$clean['provider']   = isset( $input['provider'] ) && FlowSMTP_Providers::exists( sanitize_key( $input['provider'] ) ) ? sanitize_key( $input['provider'] ) : 'custom';
 		$clean['host']       = isset( $input['host'] ) ? sanitize_text_field( $input['host'] ) : '';
 		$clean['port']       = isset( $input['port'] ) ? absint( $input['port'] ) : 587;
 		$clean['encryption'] = isset( $input['encryption'] ) && in_array( $input['encryption'], array( 'none', 'ssl', 'tls' ), true ) ? $input['encryption'] : 'tls';
@@ -102,10 +103,12 @@ class FlowSMTP_Admin {
 			array(
 				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 				'nonce'   => wp_create_nonce( 'flowsmtp_admin' ),
+				'presets' => FlowSMTP_Providers::all(),
 				'i18n'    => array(
 					'sending'   => __( 'Sending…', 'flow-smtp' ),
 					'resending' => __( 'Resending…', 'flow-smtp' ),
 					'confirmDelete' => __( 'Delete the selected log entries? This cannot be undone.', 'flow-smtp' ),
+					'docs'      => __( 'Setup guide', 'flow-smtp' ),
 				),
 			)
 		);
@@ -188,19 +191,32 @@ class FlowSMTP_Admin {
 		<form method="post" action="options.php" class="flowsmtp-form">
 			<?php settings_fields( 'flowsmtp_settings_group' ); ?>
 
+			<h2><?php esc_html_e( 'Provider', 'flow-smtp' ); ?></h2>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'Email Provider', 'flow-smtp' ); ?></span>
+					<select name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[provider]" id="flowsmtp-provider">
+						<?php foreach ( FlowSMTP_Providers::all() as $slug => $preset ) : ?>
+							<option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $s['provider'], $slug ); ?>><?php echo esc_html( $preset['label'] ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</label>
+			</div>
+			<p class="flowsmtp-muted" id="flowsmtp-provider-note" hidden></p>
+
 			<h2><?php esc_html_e( 'SMTP Server', 'flow-smtp' ); ?></h2>
 			<div class="flowsmtp-grid">
 				<label>
 					<span><?php esc_html_e( 'SMTP Host', 'flow-smtp' ); ?></span>
-					<input type="text" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[host]" value="<?php echo esc_attr( $s['host'] ); ?>" placeholder="smtp.example.com" />
+					<input type="text" id="flowsmtp-host" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[host]" value="<?php echo esc_attr( $s['host'] ); ?>" placeholder="smtp.example.com" />
 				</label>
 				<label>
 					<span><?php esc_html_e( 'Port', 'flow-smtp' ); ?></span>
-					<input type="number" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[port]" value="<?php echo esc_attr( $s['port'] ); ?>" placeholder="587" />
+					<input type="number" id="flowsmtp-port" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[port]" value="<?php echo esc_attr( $s['port'] ); ?>" placeholder="587" />
 				</label>
 				<label>
 					<span><?php esc_html_e( 'Encryption', 'flow-smtp' ); ?></span>
-					<select name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[encryption]">
+					<select id="flowsmtp-encryption" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[encryption]">
 						<option value="tls" <?php selected( $s['encryption'], 'tls' ); ?>>TLS (587)</option>
 						<option value="ssl" <?php selected( $s['encryption'], 'ssl' ); ?>>SSL (465)</option>
 						<option value="none" <?php selected( $s['encryption'], 'none' ); ?>><?php esc_html_e( 'None', 'flow-smtp' ); ?></option>
@@ -217,7 +233,7 @@ class FlowSMTP_Admin {
 			<div class="flowsmtp-grid">
 				<label>
 					<span><?php esc_html_e( 'Username', 'flow-smtp' ); ?></span>
-					<input type="text" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[username]" value="<?php echo esc_attr( $s['username'] ); ?>" autocomplete="off" />
+					<input type="text" id="flowsmtp-username" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[username]" value="<?php echo esc_attr( $s['username'] ); ?>" autocomplete="off" />
 				</label>
 				<label>
 					<span><?php esc_html_e( 'Password', 'flow-smtp' ); ?></span>

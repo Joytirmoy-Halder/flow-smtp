@@ -57,6 +57,7 @@ final class FlowSMTP {
 	}
 
 	private function includes() {
+		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-providers.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-logger.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-mailer.php';
 
@@ -81,6 +82,7 @@ final class FlowSMTP {
 	 */
 	public static function get_settings() {
 		$defaults = array(
+			'provider'      => 'custom',
 			'host'          => '',
 			'port'          => 587,
 			'encryption'    => 'tls',

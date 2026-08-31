@@ -22,6 +22,46 @@
 	}
 
 	$( function () {
+		/* Provider preset autofill */
+		$( '#flowsmtp-provider' ).on( 'change', function () {
+			var preset = FlowSMTP.presets && FlowSMTP.presets[ this.value ],
+				$note = $( '#flowsmtp-provider-note' );
+
+			if ( ! preset ) {
+				return;
+			}
+
+			if ( preset.host ) {
+				$( '#flowsmtp-host' ).val( preset.host );
+			}
+			if ( preset.port ) {
+				$( '#flowsmtp-port' ).val( preset.port );
+			}
+			if ( preset.encryption ) {
+				$( '#flowsmtp-encryption' ).val( preset.encryption );
+			}
+			if ( preset.username ) {
+				$( '#flowsmtp-username' ).val( preset.username );
+			}
+
+			if ( preset.note || preset.docs ) {
+				$note.empty();
+				if ( preset.note ) {
+					$note.append( document.createTextNode( preset.note + ' ' ) );
+				}
+				if ( preset.docs ) {
+					$note.append(
+						$( '<a>' )
+							.attr( { href: preset.docs, target: '_blank', rel: 'noopener noreferrer' } )
+							.text( FlowSMTP.i18n.docs + ' \u2197' )
+					);
+				}
+				$note.prop( 'hidden', false );
+			} else {
+				$note.prop( 'hidden', true ).empty();
+			}
+		} );
+
 		/* Send test email */
 		$( '#flowsmtp-send-test' ).on( 'click', function () {
 			var $btn = $( this ),
