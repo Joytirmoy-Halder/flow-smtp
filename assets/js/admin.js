@@ -13,6 +13,14 @@
 		return $.post( FlowSMTP.ajaxUrl, $.extend( { action: action, nonce: FlowSMTP.nonce }, data ) );
 	}
 
+	function escAttr( s ) {
+		return String( s )
+			.replace( /&/g, '&amp;' )
+			.replace( /"/g, '&quot;' )
+			.replace( /</g, '&lt;' )
+			.replace( />/g, '&gt;' );
+	}
+
 	$( function () {
 		/* Send test email */
 		$( '#flowsmtp-send-test' ).on( 'click', function () {
@@ -78,7 +86,8 @@
 						( d.error ? '<dt>Error</dt><dd>' + $( '<span>' ).text( d.error ).html() + '</dd>' : '' ) +
 						( d.headers ? '<dt>Headers</dt><dd>' + $( '<span>' ).text( d.headers ).html() + '</dd>' : '' ) +
 						'</dl>' +
-						'<div class="flowsmtp-modal-body">' + d.message + '</div>';
+						/* Body is rendered inside a sandboxed iframe: no scripts, no forms, no navigation, no referrer. */
+						'<iframe class="flowsmtp-modal-body" sandbox referrerpolicy="no-referrer" srcdoc="' + escAttr( d.message ) + '"></iframe>';
 
 				$( '#flowsmtp-modal .flowsmtp-modal-content' ).html( html );
 				$( '#flowsmtp-modal' ).prop( 'hidden', false );

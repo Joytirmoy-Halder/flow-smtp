@@ -70,14 +70,19 @@ class FlowSMTP_Admin {
 		// Keep the old password if the field was left as the mask.
 		if ( isset( $input['password'] ) && '' !== $input['password'] && '********' !== $input['password'] ) {
 			$clean['password'] = FlowSMTP_Mailer::encrypt( $input['password'] );
+		} elseif ( isset( $old['password'] ) && '' !== $old['password'] ) {
+			// Re-encrypt legacy (0.1.0 XOR) values with the current scheme on save.
+			$is_current        = 0 === strpos( $old['password'], 'fsm1:' ) || 0 === strpos( $old['password'], 'fsm2:' );
+			$clean['password'] = $is_current ? $old['password'] : FlowSMTP_Mailer::encrypt( FlowSMTP_Mailer::decrypt( $old['password'] ) );
 		} else {
-			$clean['password'] = isset( $old['password'] ) ? $old['password'] : '';
+			$clean['password'] = '';
 		}
 
 		$clean['from_email']    = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
 		$clean['from_name']     = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
 		$clean['force_from']    = empty( $input['force_from'] ) ? 0 : 1;
 		$clean['logging']       = empty( $input['logging'] ) ? 0 : 1;
+		$clean['log_body']      = empty( $input['log_body'] ) ? 0 : 1;
 		$clean['log_retention'] = isset( $input['log_retention'] ) ? absint( $input['log_retention'] ) : 30;
 
 		return $clean;
@@ -216,9 +221,14 @@ class FlowSMTP_Admin {
 				</label>
 				<label>
 					<span><?php esc_html_e( 'Password', 'flow-smtp' ); ?></span>
-					<input type="password" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[password]" value="<?php echo $s['password'] ? '********' : ''; ?>" autocomplete="new-password" />
+					<?php if ( defined( 'FLOWSMTP_SMTP_PASSWORD' ) ) : ?>
+						<input type="password" value="" placeholder="<?php esc_attr_e( 'Defined in wp-config.php', 'flow-smtp' ); ?>" disabled />
+					<?php else : ?>
+						<input type="password" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[password]" value="<?php echo $s['password'] ? '********' : ''; ?>" autocomplete="new-password" />
+					<?php endif; ?>
 				</label>
 			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Security tip: define FLOWSMTP_SMTP_PASSWORD in wp-config.php and the password never touches the database. FLOWSMTP_ENCRYPTION_KEY can also be defined to decouple stored secrets from the WordPress salts.', 'flow-smtp' ); ?></p>
 
 			<h2><?php esc_html_e( 'Sender', 'flow-smtp' ); ?></h2>
 			<div class="flowsmtp-grid">
@@ -236,12 +246,18 @@ class FlowSMTP_Admin {
 				<span class="flowsmtp-slider"></span>
 				<?php esc_html_e( 'Force this From address for all outgoing email', 'flow-smtp' ); ?>
 			</label>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Deliverability tip: the From domain should match the domain your SMTP provider signs (DKIM), or your emails may land in spam.', 'flow-smtp' ); ?></p>
 
 			<h2><?php esc_html_e( 'Logging', 'flow-smtp' ); ?></h2>
 			<label class="flowsmtp-toggle">
 				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[logging]" value="1" <?php checked( $s['logging'], 1 ); ?> />
 				<span class="flowsmtp-slider"></span>
 				<?php esc_html_e( 'Log all outgoing emails', 'flow-smtp' ); ?>
+			</label>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[log_body]" value="1" <?php checked( $s['log_body'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Log full email bodies (password reset emails are always redacted)', 'flow-smtp' ); ?>
 			</label>
 			<div class="flowsmtp-grid">
 				<label>
@@ -274,6 +290,7 @@ class FlowSMTP_Admin {
 		</div>
 		<p class="flowsmtp-actions"><button type="button" id="flowsmtp-send-test" class="flowsmtp-btn is-primary"><?php esc_html_e( 'Send Test Email', 'flow-smtp' ); ?></button></p>
 		<div id="flowsmtp-test-result" class="flowsmtp-notice" hidden></div>
+		<p class="flowsmtp-muted"><?php esc_html_e( 'Tip: send a test to a mail-tester.com address to check your SPF, DKIM and DMARC setup and spam score.', 'flow-smtp' ); ?></p>
 		<?php
 	}
 
@@ -299,7 +316,15 @@ class FlowSMTP_Admin {
 		);
 
 		$total_pages = (int) ceil( $result['total'] / $per_page );
-		$base_url    = admin_url( 'admin.php?page=' . self::PAGE_SLUG . '&tab=' . ( 'failed' === $status ? 'failed' : 'logs' ) );
+
+		$base_args = array(
+			'page' => self::PAGE_SLUG,
+			'tab'  => 'failed' === $status ? 'failed' : 'logs',
+		);
+		if ( '' !== $search ) {
+			$base_args['s'] = $search;
+		}
+		$base_url = add_query_arg( $base_args, admin_url( 'admin.php' ) );
 		?>
 		<div class="flowsmtp-table-toolbar">
 			<form method="get">
@@ -429,6 +454,7 @@ class FlowSMTP_Admin {
 			array(
 				'to'      => $log->mail_to,
 				'subject' => $log->subject,
+				// Sanitized server-side; additionally rendered inside a sandboxed iframe client-side.
 				'message' => wp_kses_post( $log->message ),
 				'headers' => $log->headers,
 				'status'  => $log->status,
