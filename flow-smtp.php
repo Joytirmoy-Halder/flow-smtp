@@ -3,7 +3,7 @@
  * Plugin Name:       FlowSMTP
  * Plugin URI:        https://github.com/Joytirmoy-Halder/flow-smtp
  * Description:       Modern SMTP mailer for WordPress with email logs, failed-email tracking & resend, and a built-in test email system.
- * Version:           0.1.0
+ * Version:           0.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Joytirmoy Halder Joyti
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
 }
 
-define( 'FLOWSMTP_VERSION', '0.1.0' );
+define( 'FLOWSMTP_VERSION', '0.2.0' );
 define( 'FLOWSMTP_FILE', __FILE__ );
 define( 'FLOWSMTP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'FLOWSMTP_URL', plugin_dir_url( __FILE__ ) );
@@ -72,6 +72,7 @@ function flowsmtp_activate() {
 			'from_name'      => get_option( 'blogname' ),
 			'force_from'     => 1,
 			'logging'        => 1,
+			'log_body'       => 1,
 			'log_retention'  => 30,
 		)
 	);
