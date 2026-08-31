@@ -1,7 +1,7 @@
 <?php
 /**
- * Email logger: records every wp_mail() call, tracks failures, supports resend
- * and automatic retries.
+ * Email logger: records every wp_mail() call, tracks failures, supports resend,
+ * automatic retries and failure alerts.
  *
  * @package FlowSMTP
  */
@@ -40,6 +40,13 @@ class FlowSMTP_Logger {
 	 * @var bool
 	 */
 	private $redact_next = false;
+
+	/**
+	 * Whether an alert email is currently being sent (recursion guard).
+	 *
+	 * @var bool
+	 */
+	private $is_alerting = false;
 
 	public function __construct() {
 		add_filter( 'wp_mail', array( $this, 'capture_mail' ), PHP_INT_MAX );
@@ -171,7 +178,8 @@ class FlowSMTP_Logger {
 	}
 
 	/**
-	 * Mark the current log entry as failed, store the error and queue a retry.
+	 * Mark the current log entry as failed, store the error, queue a retry
+	 * or send a failure alert when no retry will happen.
 	 *
 	 * @param WP_Error $error Error from wp_mail_failed.
 	 */
@@ -179,7 +187,9 @@ class FlowSMTP_Logger {
 		$id = array_pop( $this->log_id_stack );
 		if ( $id ) {
 			$this->update_status( $id, 'failed', $error->get_error_message() );
-			$this->maybe_schedule_retry( $id );
+			if ( ! $this->maybe_schedule_retry( $id ) ) {
+				$this->maybe_send_alert( $id );
+			}
 		}
 	}
 
@@ -188,22 +198,23 @@ class FlowSMTP_Logger {
 	 * attempt budget is not exhausted. Exponential backoff: 5, 10, 20 min…
 	 *
 	 * @param int $id Log id.
+	 * @return bool Whether a retry was scheduled (or already pending).
 	 */
 	public function maybe_schedule_retry( $id ) {
 		$settings = FlowSMTP::get_settings();
 
 		if ( empty( $settings['auto_retry'] ) ) {
-			return;
+			return false;
 		}
 
 		$log = $this->get( $id );
 		if ( ! $log || $log->is_test ) {
-			return; // Never auto-retry test emails.
+			return false; // Never auto-retry test emails.
 		}
 
 		$max = min( 10, max( 0, (int) $settings['max_retries'] ) );
 		if ( (int) $log->retries >= $max ) {
-			return;
+			return false;
 		}
 
 		/**
@@ -217,10 +228,12 @@ class FlowSMTP_Logger {
 		if ( ! wp_next_scheduled( 'flowsmtp_retry_email', array( (int) $id ) ) ) {
 			wp_schedule_single_event( time() + $delay, 'flowsmtp_retry_email', array( (int) $id ) );
 		}
+
+		return true;
 	}
 
 	/**
-	 * WP-Cron callback: retry a failed email and reschedule on failure.
+	 * WP-Cron callback: retry a failed email; reschedule or alert on failure.
 	 *
 	 * @param int $id Log id.
 	 */
@@ -235,8 +248,74 @@ class FlowSMTP_Logger {
 
 		$result = $this->resend( $id );
 
-		if ( true !== $result ) {
-			$this->maybe_schedule_retry( $id );
+		if ( true !== $result && ! $this->maybe_schedule_retry( $id ) ) {
+			$this->maybe_send_alert( $id );
+		}
+	}
+
+	/**
+	 * Notify the site owner that an email has permanently failed.
+	 *
+	 * Sends an email alert and/or posts to a Slack-compatible webhook.
+	 * Throttled to one alert per 5 minutes to avoid alert storms; never fires
+	 * for test emails; guarded against recursion when the alert email itself
+	 * fails to send.
+	 *
+	 * @param int $id Log id.
+	 */
+	private function maybe_send_alert( $id ) {
+		if ( $this->is_alerting ) {
+			return;
+		}
+
+		$settings = FlowSMTP::get_settings();
+		if ( empty( $settings['alerts'] ) ) {
+			return;
+		}
+
+		$log = $this->get( $id );
+		if ( ! $log || $log->is_test ) {
+			return;
+		}
+
+		if ( get_transient( 'flowsmtp_alert_lock' ) ) {
+			return;
+		}
+		set_transient( 'flowsmtp_alert_lock', 1, 5 * MINUTE_IN_SECONDS );
+
+		$site = wp_specialchars_decode( get_option( 'blogname' ), ENT_QUOTES );
+
+		/* translators: 1: site name, 2: email subject. */
+		$subject = sprintf( __( '[%1$s] Email delivery failed: %2$s', 'flow-smtp' ), $site, $log->subject );
+
+		$lines = array(
+			sprintf( __( 'An email could not be delivered on %s.', 'flow-smtp' ), home_url() ),
+			'',
+			sprintf( __( 'To: %s', 'flow-smtp' ), $log->mail_to ),
+			sprintf( __( 'Subject: %s', 'flow-smtp' ), $log->subject ),
+			sprintf( __( 'Error: %s', 'flow-smtp' ), $log->error_message ),
+			sprintf( __( 'Attempts: %d', 'flow-smtp' ), (int) $log->retries + 1 ),
+			sprintf( __( 'Date: %s', 'flow-smtp' ), $log->created_at ),
+			'',
+			sprintf( __( 'Review it here: %s', 'flow-smtp' ), admin_url( 'admin.php?page=flow-smtp&tab=failed' ) ),
+		);
+		$body  = implode( "\n", $lines );
+
+		if ( ! empty( $settings['alert_email'] ) && is_email( $settings['alert_email'] ) ) {
+			$this->is_alerting = true;
+			wp_mail( $settings['alert_email'], $subject, $body );
+			$this->is_alerting = false;
+		}
+
+		if ( ! empty( $settings['alert_webhook'] ) ) {
+			wp_remote_post(
+				$settings['alert_webhook'],
+				array(
+					'timeout' => 5,
+					'headers' => array( 'Content-Type' => 'application/json' ),
+					'body'    => wp_json_encode( array( 'text' => $subject . "\n" . $body ) ),
+				)
+			);
 		}
 	}
 
