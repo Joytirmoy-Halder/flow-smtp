@@ -91,6 +91,7 @@ final class FlowSMTP {
 			'from_name'     => get_option( 'blogname' ),
 			'force_from'    => 1,
 			'logging'       => 1,
+			'log_body'      => 1,
 			'log_retention' => 30,
 		);
 

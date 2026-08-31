@@ -12,11 +12,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 class FlowSMTP_Logger {
 
 	/**
-	 * ID of the log row for the email currently being sent.
+	 * Stack of log row ids for emails currently being sent (LIFO so nested
+	 * wp_mail() calls resolve to the correct row).
 	 *
-	 * @var int|null
+	 * @var int[]
 	 */
-	private $current_log_id = null;
+	private $log_id_stack = array();
 
 	/**
 	 * Whether the current send is a resend (skip duplicate logging).
@@ -25,10 +26,28 @@ class FlowSMTP_Logger {
 	 */
 	private $is_resend = false;
 
+	/**
+	 * Whether we are inside an explicit test-email send.
+	 *
+	 * @var bool
+	 */
+	private $test_context = false;
+
+	/**
+	 * Whether the next logged email body must be redacted (sensitive content).
+	 *
+	 * @var bool
+	 */
+	private $redact_next = false;
+
 	public function __construct() {
 		add_filter( 'wp_mail', array( $this, 'capture_mail' ), PHP_INT_MAX );
+		add_filter( 'pre_wp_mail', array( $this, 'on_pre_wp_mail' ), PHP_INT_MAX, 2 );
 		add_action( 'wp_mail_succeeded', array( $this, 'on_mail_succeeded' ), 10, 1 );
 		add_action( 'wp_mail_failed', array( $this, 'on_mail_failed' ), 10, 1 );
+
+		// Password reset emails contain live reset links: never store their body.
+		add_filter( 'retrieve_password_message', array( $this, 'flag_sensitive' ), PHP_INT_MAX );
 
 		// Daily retention cleanup.
 		add_action( 'flowsmtp_daily_cleanup', array( $this, 'cleanup_old_logs' ) );
@@ -48,6 +67,26 @@ class FlowSMTP_Logger {
 	}
 
 	/**
+	 * Toggle the explicit test-email context.
+	 *
+	 * @param bool $on Whether a test email is being sent.
+	 */
+	public function set_test_context( $on ) {
+		$this->test_context = (bool) $on;
+	}
+
+	/**
+	 * Mark the next captured email as sensitive (body will be redacted).
+	 *
+	 * @param string $message Password reset message (unchanged).
+	 * @return string
+	 */
+	public function flag_sensitive( $message ) {
+		$this->redact_next = true;
+		return $message;
+	}
+
+	/**
 	 * Log outgoing mail before it is sent.
 	 *
 	 * @param array $atts wp_mail() attributes.
@@ -57,6 +96,7 @@ class FlowSMTP_Logger {
 		$settings = FlowSMTP::get_settings();
 
 		if ( empty( $settings['logging'] ) || $this->is_resend ) {
+			$this->redact_next = false;
 			return $atts;
 		}
 
@@ -66,24 +106,52 @@ class FlowSMTP_Logger {
 		$headers     = isset( $atts['headers'] ) ? ( is_array( $atts['headers'] ) ? implode( "\n", $atts['headers'] ) : (string) $atts['headers'] ) : '';
 		$attachments = isset( $atts['attachments'] ) ? ( is_array( $atts['attachments'] ) ? implode( "\n", $atts['attachments'] ) : (string) $atts['attachments'] ) : '';
 
+		$message = isset( $atts['message'] ) ? (string) $atts['message'] : '';
+		if ( empty( $settings['log_body'] ) ) {
+			$message = __( '[Body not logged — body logging is disabled in FlowSMTP settings.]', 'flow-smtp' );
+		} elseif ( $this->redact_next ) {
+			$message = __( '[Redacted — this email contains a password reset link.]', 'flow-smtp' );
+		}
+		$this->redact_next = false;
+
 		$wpdb->insert(
 			self::table(),
 			array(
 				'mail_to'     => $to,
 				'subject'     => isset( $atts['subject'] ) ? (string) $atts['subject'] : '',
-				'message'     => isset( $atts['message'] ) ? (string) $atts['message'] : '',
+				'message'     => $message,
 				'headers'     => $headers,
 				'attachments' => $attachments,
 				'status'      => 'pending',
-				'is_test'     => did_action( 'flowsmtp_sending_test_email' ) ? 1 : 0,
+				'is_test'     => $this->test_context ? 1 : 0,
 				'created_at'  => current_time( 'mysql' ),
 			),
 			array( '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
 		);
 
-		$this->current_log_id = (int) $wpdb->insert_id;
+		$this->log_id_stack[] = (int) $wpdb->insert_id;
 
 		return $atts;
+	}
+
+	/**
+	 * Resolve the log row when another plugin short-circuits wp_mail() via
+	 * pre_wp_mail, so rows never get stuck in 'pending'.
+	 *
+	 * @param null|bool $short_circuit Short-circuit return value.
+	 * @param array     $atts          Mail attributes.
+	 * @return null|bool Unchanged value.
+	 */
+	public function on_pre_wp_mail( $short_circuit, $atts ) {
+		if ( null !== $short_circuit && ! empty( $this->log_id_stack ) ) {
+			$id = array_pop( $this->log_id_stack );
+			if ( $short_circuit ) {
+				$this->update_status( $id, 'sent', __( 'Handled by another plugin (pre_wp_mail).', 'flow-smtp' ) );
+			} else {
+				$this->update_status( $id, 'failed', __( 'Blocked or handled by another plugin (pre_wp_mail).', 'flow-smtp' ) );
+			}
+		}
+		return $short_circuit;
 	}
 
 	/**
@@ -92,9 +160,9 @@ class FlowSMTP_Logger {
 	 * @param array $mail_data Mail data from wp_mail_succeeded.
 	 */
 	public function on_mail_succeeded( $mail_data ) {
-		if ( $this->current_log_id ) {
-			$this->update_status( $this->current_log_id, 'sent' );
-			$this->current_log_id = null;
+		$id = array_pop( $this->log_id_stack );
+		if ( $id ) {
+			$this->update_status( $id, 'sent' );
 		}
 	}
 
@@ -104,9 +172,9 @@ class FlowSMTP_Logger {
 	 * @param WP_Error $error Error from wp_mail_failed.
 	 */
 	public function on_mail_failed( $error ) {
-		if ( $this->current_log_id ) {
-			$this->update_status( $this->current_log_id, 'failed', $error->get_error_message() );
-			$this->current_log_id = null;
+		$id = array_pop( $this->log_id_stack );
+		if ( $id ) {
+			$this->update_status( $id, 'failed', $error->get_error_message() );
 		}
 	}
 

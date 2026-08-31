@@ -50,7 +50,8 @@ class FlowSMTP_Mailer {
 		if ( ! empty( $settings['auth'] ) ) {
 			$phpmailer->SMTPAuth = true;
 			$phpmailer->Username = $settings['username'];
-			$phpmailer->Password = self::decrypt( $settings['password'] );
+			// A constant defined in wp-config.php always wins and never touches the database.
+			$phpmailer->Password = defined( 'FLOWSMTP_SMTP_PASSWORD' ) ? FLOWSMTP_SMTP_PASSWORD : self::decrypt( $settings['password'] );
 		} else {
 			$phpmailer->SMTPAuth = false;
 		}
@@ -131,21 +132,33 @@ class FlowSMTP_Mailer {
 		};
 		add_action( 'wp_mail_failed', $catch_error );
 
+		// Explicit test context: only emails sent inside this window are flagged as tests.
+		$this->logger->set_test_context( true );
+
 		do_action( 'flowsmtp_sending_test_email' );
 
 		$subject = sprintf( '[FlowSMTP] Test email from %s', wp_parse_url( home_url(), PHP_URL_HOST ) );
+		$plain   = "Congratulations!\n\nThis test email was sent successfully by FlowSMTP.\nYour SMTP settings are working.\n\n-- FlowSMTP";
+
+		// Provide a plain-text alternative for the HTML version (better spam scores).
+		$set_alt_body = function ( $phpmailer ) use ( $plain ) {
+			$phpmailer->AltBody = $plain; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		};
 
 		if ( $html ) {
 			$headers = array( 'Content-Type: text/html; charset=UTF-8' );
 			$body    = self::test_email_html();
+			add_action( 'phpmailer_init', $set_alt_body, PHP_INT_MAX );
 		} else {
 			$headers = array();
-			$body    = "Congratulations!\n\nThis test email was sent successfully by FlowSMTP.\nYour SMTP settings are working.\n\n-- FlowSMTP";
+			$body    = $plain;
 		}
 
 		$sent = wp_mail( $to, $subject, $body, $headers );
 
 		remove_action( 'wp_mail_failed', $catch_error );
+		remove_action( 'phpmailer_init', $set_alt_body, PHP_INT_MAX );
+		$this->logger->set_test_context( false );
 
 		if ( $sent ) {
 			return array(
@@ -180,35 +193,98 @@ class FlowSMTP_Mailer {
 	}
 
 	/**
-	 * Obfuscate the stored password (base64 + salt XOR). Not true encryption,
-	 * but avoids storing the raw value; constants-based config is recommended
-	 * for high-security setups.
+	 * Derive a 32-byte encryption key.
+	 *
+	 * Define FLOWSMTP_ENCRYPTION_KEY in wp-config.php to decouple the key from
+	 * the WordPress salts (recommended: survives salt rotation).
+	 *
+	 * @return string
+	 */
+	private static function key() {
+		if ( defined( 'FLOWSMTP_ENCRYPTION_KEY' ) && FLOWSMTP_ENCRYPTION_KEY ) {
+			return hash( 'sha256', FLOWSMTP_ENCRYPTION_KEY, true );
+		}
+		return hash( 'sha256', wp_salt( 'auth' ) . '|flowsmtp-v2', true );
+	}
+
+	/**
+	 * Encrypt a secret with authenticated encryption.
+	 *
+	 * Uses libsodium XSalsa20-Poly1305 when available, otherwise AES-256-GCM
+	 * via OpenSSL. Output is prefixed with a format marker for migrations.
 	 *
 	 * @param string $value Plain text.
 	 * @return string
 	 */
 	public static function encrypt( $value ) {
+		$value = (string) $value;
 		if ( '' === $value ) {
 			return '';
 		}
-		$key = wp_salt( 'auth' );
-		$out = '';
-		for ( $i = 0, $len = strlen( $value ); $i < $len; $i++ ) {
-			$out .= chr( ord( $value[ $i ] ) ^ ord( $key[ $i % strlen( $key ) ] ) );
+
+		$key = self::key();
+
+		if ( function_exists( 'sodium_crypto_secretbox' ) ) {
+			$nonce = random_bytes( SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+			return 'fsm1:' . base64_encode( $nonce . sodium_crypto_secretbox( $value, $nonce, $key ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 		}
-		return base64_encode( $out ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+
+		$iv     = random_bytes( 12 );
+		$tag    = '';
+		$cipher = openssl_encrypt( $value, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag );
+
+		if ( false === $cipher ) {
+			return '';
+		}
+
+		return 'fsm2:' . base64_encode( $iv . $tag . $cipher ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 	}
 
 	/**
-	 * Reverse of encrypt().
+	 * Decrypt a stored secret. Falls back to the legacy 0.1.0 XOR format so
+	 * existing installs keep working; the value is re-encrypted on next save.
 	 *
 	 * @param string $value Stored value.
 	 * @return string
 	 */
 	public static function decrypt( $value ) {
+		$value = (string) $value;
 		if ( '' === $value ) {
 			return '';
 		}
+
+		if ( 0 === strpos( $value, 'fsm1:' ) ) {
+			if ( ! function_exists( 'sodium_crypto_secretbox_open' ) ) {
+				return '';
+			}
+			$raw = base64_decode( substr( $value, 5 ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+			if ( false === $raw || strlen( $raw ) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ) {
+				return '';
+			}
+			$nonce = substr( $raw, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+			$plain = sodium_crypto_secretbox_open( substr( $raw, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ), $nonce, self::key() );
+			return false === $plain ? '' : $plain;
+		}
+
+		if ( 0 === strpos( $value, 'fsm2:' ) ) {
+			$raw = base64_decode( substr( $value, 5 ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
+			if ( false === $raw || strlen( $raw ) <= 28 ) {
+				return '';
+			}
+			$plain = openssl_decrypt( substr( $raw, 28 ), 'aes-256-gcm', self::key(), OPENSSL_RAW_DATA, substr( $raw, 0, 12 ), substr( $raw, 12, 16 ) );
+			return false === $plain ? '' : $plain;
+		}
+
+		return self::legacy_decrypt( $value );
+	}
+
+	/**
+	 * Decrypt values stored by FlowSMTP 0.1.0 (XOR + base64). Migration only.
+	 *
+	 * @param string $value Stored value.
+	 * @return string
+	 */
+	private static function legacy_decrypt( $value ) {
 		$raw = base64_decode( $value ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
 		if ( false === $raw ) {
 			return '';
