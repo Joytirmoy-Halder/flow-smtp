@@ -232,6 +232,28 @@
 .flowsmtp-badge.is-test { background: #f0f6fc; color: var(--fsm-accent-dark); border-color: #c5d9ed; margin-left: 6px; }
 .flowsmtp-error { cursor: help; color: var(--fsm-red); margin-left: 4px; }
 
+/* Deliverability checklist */
+.flowsmtp-checklist {
+	list-style: none;
+	margin: 4px 0 16px;
+	padding: 0;
+	border: 1px solid var(--fsm-border);
+	border-radius: var(--fsm-radius);
+	max-width: 760px;
+}
+.flowsmtp-checklist li {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--fsm-border-soft);
+	font-size: 13px;
+}
+.flowsmtp-checklist li:last-child { border-bottom: none; }
+.flowsmtp-checklist .flowsmtp-badge { flex-shrink: 0; min-width: 38px; text-align: center; }
+.flowsmtp-checklist strong { flex-shrink: 0; }
+.flowsmtp-check-detail { color: var(--fsm-muted); word-break: break-word; }
+
 /* Notice */
 .flowsmtp-notice { margin-top: 14px; padding: 10px 14px; border-radius: var(--fsm-radius); font-size: 13px; border: 1px solid; border-left-width: 4px; }
 .flowsmtp-notice.is-success { background: #fff; color: var(--fsm-text); border-color: var(--fsm-border); border-left-color: var(--fsm-green); }
