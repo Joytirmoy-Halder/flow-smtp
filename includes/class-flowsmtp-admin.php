@@ -85,6 +85,8 @@ class FlowSMTP_Admin {
 		$clean['logging']       = empty( $input['logging'] ) ? 0 : 1;
 		$clean['log_body']      = empty( $input['log_body'] ) ? 0 : 1;
 		$clean['log_retention'] = isset( $input['log_retention'] ) ? absint( $input['log_retention'] ) : 30;
+		$clean['auto_retry']    = empty( $input['auto_retry'] ) ? 0 : 1;
+		$clean['max_retries']   = isset( $input['max_retries'] ) ? min( 10, absint( $input['max_retries'] ) ) : 3;
 
 		return $clean;
 	}
@@ -281,6 +283,20 @@ class FlowSMTP_Admin {
 					<input type="number" min="0" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[log_retention]" value="<?php echo esc_attr( $s['log_retention'] ); ?>" />
 				</label>
 			</div>
+
+			<h2><?php esc_html_e( 'Delivery Retries', 'flow-smtp' ); ?></h2>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[auto_retry]" value="1" <?php checked( $s['auto_retry'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Automatically retry failed emails (exponential backoff: 5, 10, 20 minutes…)', 'flow-smtp' ); ?>
+			</label>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'Maximum retry attempts', 'flow-smtp' ); ?></span>
+					<input type="number" min="0" max="10" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[max_retries]" value="<?php echo esc_attr( $s['max_retries'] ); ?>" />
+				</label>
+			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Retries run in the background via WP-Cron. Test emails are never retried automatically.', 'flow-smtp' ); ?></p>
 
 			<p class="flowsmtp-actions"><button type="submit" class="flowsmtp-btn is-primary"><?php esc_html_e( 'Save Settings', 'flow-smtp' ); ?></button></p>
 		</form>
