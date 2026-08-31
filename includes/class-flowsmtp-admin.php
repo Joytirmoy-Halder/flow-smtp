@@ -1,6 +1,6 @@
 <?php
 /**
- * Admin UI: settings, email logs, failed emails, deliverability, test email.
+ * Admin UI: overview, settings, email logs, failed emails, deliverability, test email.
  *
  * @package FlowSMTP
  */
@@ -130,8 +130,9 @@ class FlowSMTP_Admin {
 			return;
 		}
 
-		$tab  = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'settings'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$tab  = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'overview'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$tabs = array(
+			'overview'       => __( 'Overview', 'flow-smtp' ),
 			'settings'       => __( 'Settings', 'flow-smtp' ),
 			'logs'           => __( 'Email Logs', 'flow-smtp' ),
 			'failed'         => __( 'Failed Emails', 'flow-smtp' ),
@@ -139,7 +140,7 @@ class FlowSMTP_Admin {
 			'test'           => __( 'Send Test', 'flow-smtp' ),
 		);
 		if ( ! isset( $tabs[ $tab ] ) ) {
-			$tab = 'settings';
+			$tab = 'overview';
 		}
 
 		$stats = $this->logger->get_stats();
@@ -169,6 +170,9 @@ class FlowSMTP_Admin {
 			<div class="flowsmtp-card">
 				<?php
 				switch ( $tab ) {
+					case 'settings':
+						$this->render_settings_tab();
+						break;
 					case 'logs':
 						$this->render_logs( '' );
 						break;
@@ -182,7 +186,7 @@ class FlowSMTP_Admin {
 						$this->render_test_tab();
 						break;
 					default:
-						$this->render_settings_tab();
+						$this->render_overview_tab( $stats );
 				}
 				?>
 			</div>
@@ -194,6 +198,81 @@ class FlowSMTP_Admin {
 				<div class="flowsmtp-modal-content"></div>
 			</div>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Overview tab: 14-day stacked delivery chart, success rate, top errors.
+	 *
+	 * @param array $stats Aggregate stats from the logger.
+	 */
+	private function render_overview_tab( $stats ) {
+		$daily  = $this->logger->get_daily_stats( 14 );
+		$errors = $this->logger->get_top_errors( 5 );
+
+		$max = 1;
+		foreach ( $daily as $counts ) {
+			$max = max( $max, $counts['sent'] + $counts['failed'] + $counts['pending'] );
+		}
+
+		$total_finished = $stats['sent'] + $stats['failed'];
+		$success_rate   = $total_finished > 0 ? round( ( $stats['sent'] / $total_finished ) * 100, 1 ) : null;
+		?>
+		<h2><?php esc_html_e( 'Last 14 Days', 'flow-smtp' ); ?></h2>
+		<?php if ( null !== $success_rate ) : ?>
+			<p class="flowsmtp-muted">
+				<?php
+				/* translators: %s: percentage. */
+				echo esc_html( sprintf( __( 'All-time delivery success rate: %s%%', 'flow-smtp' ), number_format_i18n( $success_rate, 1 ) ) );
+				?>
+			</p>
+		<?php endif; ?>
+
+		<div class="flowsmtp-chart" role="img" aria-label="<?php esc_attr_e( 'Emails per day for the last 14 days', 'flow-smtp' ); ?>">
+			<?php foreach ( $daily as $day => $counts ) : ?>
+				<?php
+				$sent_h    = (int) round( ( $counts['sent'] / $max ) * 110 );
+				$failed_h  = (int) round( ( $counts['failed'] / $max ) * 110 );
+				$pending_h = (int) round( ( $counts['pending'] / $max ) * 110 );
+				$title     = sprintf(
+					/* translators: 1: date, 2: sent count, 3: failed count, 4: pending count. */
+					__( '%1$s — Sent: %2$d, Failed: %3$d, Pending: %4$d', 'flow-smtp' ),
+					mysql2date( 'M j', $day . ' 00:00:00' ),
+					$counts['sent'],
+					$counts['failed'],
+					$counts['pending']
+				);
+				?>
+				<div class="flowsmtp-chart-col" title="<?php echo esc_attr( $title ); ?>">
+					<div class="flowsmtp-chart-bars">
+						<?php if ( $pending_h > 0 ) : ?><span class="flowsmtp-bar is-pending" style="height:<?php echo esc_attr( max( 2, $pending_h ) ); ?>px"></span><?php endif; ?>
+						<?php if ( $failed_h > 0 || $counts['failed'] > 0 ) : ?><span class="flowsmtp-bar is-failed" style="height:<?php echo esc_attr( max( 2, $failed_h ) ); ?>px"></span><?php endif; ?>
+						<?php if ( $sent_h > 0 || $counts['sent'] > 0 ) : ?><span class="flowsmtp-bar is-sent" style="height:<?php echo esc_attr( max( 2, $sent_h ) ); ?>px"></span><?php endif; ?>
+					</div>
+					<span class="flowsmtp-chart-label"><?php echo esc_html( mysql2date( 'j', $day . ' 00:00:00' ) ); ?></span>
+				</div>
+			<?php endforeach; ?>
+		</div>
+		<div class="flowsmtp-legend">
+			<span class="flowsmtp-legend-item is-sent"><?php esc_html_e( 'Sent', 'flow-smtp' ); ?></span>
+			<span class="flowsmtp-legend-item is-failed"><?php esc_html_e( 'Failed', 'flow-smtp' ); ?></span>
+			<span class="flowsmtp-legend-item is-pending"><?php esc_html_e( 'Pending', 'flow-smtp' ); ?></span>
+		</div>
+
+		<h2><?php esc_html_e( 'Most Frequent Errors', 'flow-smtp' ); ?></h2>
+		<?php if ( empty( $errors ) ) : ?>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'No failures recorded. Nice and healthy!', 'flow-smtp' ); ?></p>
+		<?php else : ?>
+			<ul class="flowsmtp-checklist flowsmtp-errorlist">
+				<?php foreach ( $errors as $error ) : ?>
+					<li>
+						<span class="flowsmtp-badge is-failed"><?php echo esc_html( number_format_i18n( (int) $error->total ) ); ?>&times;</span>
+						<span class="flowsmtp-check-detail"><?php echo esc_html( wp_trim_words( $error->error_message, 30 ) ); ?></span>
+					</li>
+				<?php endforeach; ?>
+			</ul>
+			<p><a class="flowsmtp-btn" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::PAGE_SLUG . '&tab=failed' ) ); ?>"><?php esc_html_e( 'Review Failed Emails', 'flow-smtp' ); ?></a></p>
+		<?php endif; ?>
 		<?php
 	}
 

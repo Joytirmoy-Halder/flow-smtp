@@ -424,6 +424,62 @@ class FlowSMTP_Logger {
 	}
 
 	/**
+	 * Per-day sent/failed/pending counts for the last N days (site timezone),
+	 * with empty days filled in so charts have a continuous axis.
+	 *
+	 * @param int $days Number of days including today.
+	 * @return array<string, array{sent:int, failed:int, pending:int}> Keyed by Y-m-d.
+	 */
+	public function get_daily_stats( $days = 14 ) {
+		global $wpdb;
+
+		$days = max( 1, (int) $days );
+		$now  = current_time( 'timestamp' );
+
+		$data = array();
+		for ( $i = $days - 1; $i >= 0; $i-- ) {
+			$data[ gmdate( 'Y-m-d', $now - $i * DAY_IN_SECONDS ) ] = array(
+				'sent'    => 0,
+				'failed'  => 0,
+				'pending' => 0,
+			);
+		}
+
+		$since = gmdate( 'Y-m-d 00:00:00', $now - ( $days - 1 ) * DAY_IN_SECONDS );
+		$rows  = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT DATE(created_at) AS day, status, COUNT(*) AS total FROM ' . self::table() . ' WHERE created_at >= %s GROUP BY DATE(created_at), status',
+				$since
+			)
+		);
+
+		foreach ( $rows as $row ) {
+			if ( isset( $data[ $row->day ][ $row->status ] ) ) {
+				$data[ $row->day ][ $row->status ] = (int) $row->total;
+			}
+		}
+
+		return $data;
+	}
+
+	/**
+	 * Most frequent failure messages.
+	 *
+	 * @param int $limit Max rows.
+	 * @return array Rows with error_message and total.
+	 */
+	public function get_top_errors( $limit = 5 ) {
+		global $wpdb;
+
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT error_message, COUNT(*) AS total FROM ' . self::table() . " WHERE status = 'failed' AND error_message <> '' GROUP BY error_message ORDER BY total DESC, error_message ASC LIMIT %d",
+				max( 1, (int) $limit )
+			)
+		);
+	}
+
+	/**
 	 * Resend a logged email.
 	 *
 	 * @param int $id Log id.
