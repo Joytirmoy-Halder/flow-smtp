@@ -180,6 +180,7 @@
 	font-weight: 500;
 	cursor: pointer;
 	line-height: 1.6;
+	text-decoration: none;
 }
 .flowsmtp-btn:hover { background: #f0f0f1; color: var(--fsm-accent-dark); border-color: var(--fsm-accent-dark); }
 .flowsmtp-btn.is-primary { background: var(--fsm-accent); border-color: var(--fsm-accent); color: #fff; }
@@ -193,6 +194,7 @@
 /* Table */
 .flowsmtp-table-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .flowsmtp-table-toolbar form { display: flex; gap: 6px; }
+.flowsmtp-toolbar-actions { display: flex; gap: 6px; }
 .flowsmtp-table-toolbar input[type="search"] {
 	border: 1px solid #8c8f94;
 	border-radius: var(--fsm-radius);
