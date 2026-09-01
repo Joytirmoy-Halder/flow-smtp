@@ -136,6 +136,9 @@ class FlowSMTP_Admin {
 		$clean['alert_email']   = isset( $input['alert_email'] ) && is_email( $input['alert_email'] ) ? sanitize_email( $input['alert_email'] ) : get_option( 'admin_email' );
 		$clean['alert_webhook'] = isset( $input['alert_webhook'] ) ? esc_url_raw( trim( $input['alert_webhook'] ) ) : '';
 
+		// Data retention on uninstall.
+		$clean['uninstall_data'] = isset( $input['uninstall_data'] ) && 'delete' === $input['uninstall_data'] ? 'delete' : 'keep';
+
 		return $clean;
 	}
 
@@ -561,6 +564,18 @@ class FlowSMTP_Admin {
 				</label>
 			</div>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Alerts are throttled to one per 5 minutes. Tip: if your SMTP server is down, the alert email may also fail — a webhook is the more reliable channel.', 'flow-smtp' ); ?></p>
+
+			<h2><?php esc_html_e( 'Uninstall', 'flow-smtp' ); ?></h2>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'When this plugin is deleted', 'flow-smtp' ); ?></span>
+					<select name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[uninstall_data]">
+						<option value="keep" <?php selected( $s['uninstall_data'], 'keep' ); ?>><?php esc_html_e( 'Keep all settings and email logs (recommended)', 'flow-smtp' ); ?></option>
+						<option value="delete" <?php selected( $s['uninstall_data'], 'delete' ); ?>><?php esc_html_e( 'Delete all FlowSMTP data permanently', 'flow-smtp' ); ?></option>
+					</select>
+				</label>
+			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Keeping data means you can deactivate, update or reinstall FlowSMTP without losing your configuration or your email audit trail. Choosing to delete removes the settings, the log table and all scheduled retries when the plugin is deleted from the Plugins screen — this cannot be undone, so export your logs to CSV first if you may need them.', 'flow-smtp' ); ?></p>
 
 			<p class="flowsmtp-actions"><button type="submit" class="flowsmtp-btn is-primary"><?php esc_html_e( 'Save Settings', 'flow-smtp' ); ?></button></p>
 		</form>

@@ -18,16 +18,27 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 }
 
 /**
+ * Whether the current site opted in to a full data removal.
+ *
+ * @return bool
+ */
+function flowsmtp_should_delete_data() {
+	$settings = get_option( 'flowsmtp_settings' );
+
+	return is_array( $settings ) && isset( $settings['uninstall_data'] ) && 'delete' === $settings['uninstall_data'];
+}
+
+/**
  * Remove all FlowSMTP data for the current site.
+ *
+ * @return bool Whether anything was removed.
  */
 function flowsmtp_uninstall_site() {
 	global $wpdb;
 
-	$settings = get_option( 'flowsmtp_settings' );
-
 	// Opt-in only: keep everything unless the admin asked for a clean removal.
-	if ( ! is_array( $settings ) || ! isset( $settings['uninstall_data'] ) || 'delete' !== $settings['uninstall_data'] ) {
-		return;
+	if ( ! flowsmtp_should_delete_data() ) {
+		return false;
 	}
 
 	// Scheduled work.
@@ -48,6 +59,8 @@ function flowsmtp_uninstall_site() {
 	$table = $wpdb->prefix . 'flowsmtp_email_log';
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name cannot be parameterised; it is built from $wpdb->prefix.
 	$wpdb->query( "DROP TABLE IF EXISTS `{$table}`" );
+
+	return true;
 }
 
 if ( is_multisite() ) {
@@ -59,16 +72,25 @@ if ( is_multisite() ) {
 		)
 	);
 
+	$flowsmtp_main_site_opted_in = false;
+	$flowsmtp_main_site_id       = function_exists( 'get_main_site_id' ) ? get_main_site_id() : 1;
+
 	foreach ( $flowsmtp_site_ids as $flowsmtp_site_id ) {
 		switch_to_blog( (int) $flowsmtp_site_id );
-		flowsmtp_uninstall_site();
+
+		$flowsmtp_removed = flowsmtp_uninstall_site();
+		if ( (int) $flowsmtp_site_id === (int) $flowsmtp_main_site_id ) {
+			$flowsmtp_main_site_opted_in = $flowsmtp_removed;
+		}
+
 		restore_current_blog();
 	}
 
-	// Network settings mirror the per-site choice: only removed if at least one
-	// site opted in to a full cleanup is irrelevant here — the network admin
-	// controls this option, so remove it only when nothing is left to configure.
-	delete_site_option( 'flowsmtp_network_settings' );
+	// The network settings belong to the network admin, so they are only removed
+	// when the main site (where the network admin manages the plugin) opted in.
+	if ( $flowsmtp_main_site_opted_in ) {
+		delete_site_option( 'flowsmtp_network_settings' );
+	}
 } else {
 	flowsmtp_uninstall_site();
 }
