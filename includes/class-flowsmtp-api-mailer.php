@@ -62,6 +62,11 @@ class FlowSMTP_API_Mailer {
 			return $short_circuit; // Another plugin got there first.
 		}
 
+		// Fallback-connection resends always take the SMTP path.
+		if ( function_exists( 'flowsmtp' ) && flowsmtp()->mailer && flowsmtp()->mailer->in_fallback ) {
+			return null;
+		}
+
 		$settings = FlowSMTP::get_settings();
 
 		if ( 'api' !== $settings['mailer_type'] || ! self::supports( $settings['provider'] ) ) {
