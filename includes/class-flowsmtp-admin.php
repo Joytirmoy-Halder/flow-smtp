@@ -62,13 +62,14 @@ class FlowSMTP_Admin {
 	public function sanitize_settings( $input ) {
 		$old = FlowSMTP::get_settings();
 
-		$clean               = array();
-		$clean['provider']   = isset( $input['provider'] ) && FlowSMTP_Providers::exists( sanitize_key( $input['provider'] ) ) ? sanitize_key( $input['provider'] ) : 'custom';
-		$clean['host']       = isset( $input['host'] ) ? sanitize_text_field( $input['host'] ) : '';
-		$clean['port']       = isset( $input['port'] ) ? absint( $input['port'] ) : 587;
-		$clean['encryption'] = isset( $input['encryption'] ) && in_array( $input['encryption'], array( 'none', 'ssl', 'tls' ), true ) ? $input['encryption'] : 'tls';
-		$clean['auth']       = empty( $input['auth'] ) ? 0 : 1;
-		$clean['username']   = isset( $input['username'] ) ? sanitize_text_field( $input['username'] ) : '';
+		$clean                = array();
+		$clean['provider']    = isset( $input['provider'] ) && FlowSMTP_Providers::exists( sanitize_key( $input['provider'] ) ) ? sanitize_key( $input['provider'] ) : 'custom';
+		$clean['mailer_type'] = isset( $input['mailer_type'] ) && in_array( $input['mailer_type'], array( 'smtp', 'api' ), true ) ? $input['mailer_type'] : 'smtp';
+		$clean['host']        = isset( $input['host'] ) ? sanitize_text_field( $input['host'] ) : '';
+		$clean['port']        = isset( $input['port'] ) ? absint( $input['port'] ) : 587;
+		$clean['encryption']  = isset( $input['encryption'] ) && in_array( $input['encryption'], array( 'none', 'ssl', 'tls' ), true ) ? $input['encryption'] : 'tls';
+		$clean['auth']        = empty( $input['auth'] ) ? 0 : 1;
+		$clean['username']    = isset( $input['username'] ) ? sanitize_text_field( $input['username'] ) : '';
 
 		// Keep the old password if the field was left as the mask.
 		if ( isset( $input['password'] ) && '' !== $input['password'] && '********' !== $input['password'] ) {
@@ -80,6 +81,14 @@ class FlowSMTP_Admin {
 		} else {
 			$clean['password'] = '';
 		}
+
+		// Same mask handling for the API key (stored encrypted).
+		if ( isset( $input['api_key'] ) && '' !== $input['api_key'] && '********' !== $input['api_key'] ) {
+			$clean['api_key'] = FlowSMTP_Mailer::encrypt( $input['api_key'] );
+		} else {
+			$clean['api_key'] = isset( $old['api_key'] ) ? $old['api_key'] : '';
+		}
+		$clean['api_domain'] = isset( $input['api_domain'] ) ? sanitize_text_field( $input['api_domain'] ) : '';
 
 		$clean['from_email']    = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
 		$clean['from_name']     = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
@@ -292,8 +301,33 @@ class FlowSMTP_Admin {
 						<?php endforeach; ?>
 					</select>
 				</label>
+				<label>
+					<span><?php esc_html_e( 'Sending Method', 'flow-smtp' ); ?></span>
+					<select name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[mailer_type]" id="flowsmtp-mailer-type">
+						<option value="smtp" <?php selected( $s['mailer_type'], 'smtp' ); ?>><?php esc_html_e( 'SMTP', 'flow-smtp' ); ?></option>
+						<option value="api" <?php selected( $s['mailer_type'], 'api' ); ?>><?php esc_html_e( 'HTTP API (SendGrid, Mailgun, Brevo)', 'flow-smtp' ); ?></option>
+					</select>
+				</label>
 			</div>
 			<p class="flowsmtp-muted" id="flowsmtp-provider-note" hidden></p>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'HTTP API sending bypasses SMTP entirely — ideal when your host blocks outbound SMTP ports (25/465/587). It is available for SendGrid, Mailgun and Brevo. Other providers always use SMTP.', 'flow-smtp' ); ?></p>
+
+			<h2><?php esc_html_e( 'API Credentials', 'flow-smtp' ); ?></h2>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'API Key', 'flow-smtp' ); ?></span>
+					<?php if ( defined( 'FLOWSMTP_API_KEY' ) ) : ?>
+						<input type="password" value="" placeholder="<?php esc_attr_e( 'Defined in wp-config.php', 'flow-smtp' ); ?>" disabled />
+					<?php else : ?>
+						<input type="password" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[api_key]" value="<?php echo $s['api_key'] ? '********' : ''; ?>" autocomplete="new-password" />
+					<?php endif; ?>
+				</label>
+				<label>
+					<span><?php esc_html_e( 'Mailgun Sending Domain (Mailgun only)', 'flow-smtp' ); ?></span>
+					<input type="text" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[api_domain]" value="<?php echo esc_attr( $s['api_domain'] ); ?>" placeholder="mg.example.com" />
+				</label>
+			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Only used when the sending method is HTTP API. The key is stored encrypted; define FLOWSMTP_API_KEY in wp-config.php to keep it out of the database entirely.', 'flow-smtp' ); ?></p>
 
 			<h2><?php esc_html_e( 'SMTP Server', 'flow-smtp' ); ?></h2>
 			<div class="flowsmtp-grid">
@@ -435,7 +469,7 @@ class FlowSMTP_Admin {
 	private function render_test_tab() {
 		?>
 		<h2><?php esc_html_e( 'Send a Test Email', 'flow-smtp' ); ?></h2>
-		<p class="flowsmtp-muted"><?php esc_html_e( 'Verify your SMTP configuration by sending a real email through your server. The result is also recorded in the email log.', 'flow-smtp' ); ?></p>
+		<p class="flowsmtp-muted"><?php esc_html_e( 'Verify your configuration by sending a real email through your server or provider API. The result is also recorded in the email log.', 'flow-smtp' ); ?></p>
 		<div class="flowsmtp-grid">
 			<label>
 				<span><?php esc_html_e( 'Recipient', 'flow-smtp' ); ?></span>
