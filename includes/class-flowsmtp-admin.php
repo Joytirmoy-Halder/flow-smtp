@@ -90,6 +90,19 @@ class FlowSMTP_Admin {
 		}
 		$clean['api_domain'] = isset( $input['api_domain'] ) ? sanitize_text_field( $input['api_domain'] ) : '';
 
+		// Fallback SMTP connection.
+		$clean['fallback']            = empty( $input['fallback'] ) ? 0 : 1;
+		$clean['fallback_host']       = isset( $input['fallback_host'] ) ? sanitize_text_field( $input['fallback_host'] ) : '';
+		$clean['fallback_port']       = isset( $input['fallback_port'] ) ? absint( $input['fallback_port'] ) : 587;
+		$clean['fallback_encryption'] = isset( $input['fallback_encryption'] ) && in_array( $input['fallback_encryption'], array( 'none', 'ssl', 'tls' ), true ) ? $input['fallback_encryption'] : 'tls';
+		$clean['fallback_auth']       = empty( $input['fallback_auth'] ) ? 0 : 1;
+		$clean['fallback_username']   = isset( $input['fallback_username'] ) ? sanitize_text_field( $input['fallback_username'] ) : '';
+		if ( isset( $input['fallback_password'] ) && '' !== $input['fallback_password'] && '********' !== $input['fallback_password'] ) {
+			$clean['fallback_password'] = FlowSMTP_Mailer::encrypt( $input['fallback_password'] );
+		} else {
+			$clean['fallback_password'] = isset( $old['fallback_password'] ) ? $old['fallback_password'] : '';
+		}
+
 		$clean['from_email']    = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
 		$clean['from_name']     = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
 		$clean['force_from']    = empty( $input['force_from'] ) ? 0 : 1;
@@ -370,6 +383,47 @@ class FlowSMTP_Admin {
 				</label>
 			</div>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Security tip: define FLOWSMTP_SMTP_PASSWORD in wp-config.php and the password never touches the database. FLOWSMTP_ENCRYPTION_KEY can also be defined to decouple stored secrets from the WordPress salts.', 'flow-smtp' ); ?></p>
+
+			<h2><?php esc_html_e( 'Fallback Connection', 'flow-smtp' ); ?></h2>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback]" value="1" <?php checked( $s['fallback'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Retry through a backup SMTP connection when the primary fails', 'flow-smtp' ); ?>
+			</label>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'Fallback SMTP Host', 'flow-smtp' ); ?></span>
+					<input type="text" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback_host]" value="<?php echo esc_attr( $s['fallback_host'] ); ?>" placeholder="smtp.backup-provider.com" />
+				</label>
+				<label>
+					<span><?php esc_html_e( 'Port', 'flow-smtp' ); ?></span>
+					<input type="number" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback_port]" value="<?php echo esc_attr( $s['fallback_port'] ); ?>" placeholder="587" />
+				</label>
+				<label>
+					<span><?php esc_html_e( 'Encryption', 'flow-smtp' ); ?></span>
+					<select name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback_encryption]">
+						<option value="tls" <?php selected( $s['fallback_encryption'], 'tls' ); ?>>TLS (587)</option>
+						<option value="ssl" <?php selected( $s['fallback_encryption'], 'ssl' ); ?>>SSL (465)</option>
+						<option value="none" <?php selected( $s['fallback_encryption'], 'none' ); ?>><?php esc_html_e( 'None', 'flow-smtp' ); ?></option>
+					</select>
+				</label>
+			</div>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback_auth]" value="1" <?php checked( $s['fallback_auth'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Fallback connection uses authentication', 'flow-smtp' ); ?>
+			</label>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'Fallback Username', 'flow-smtp' ); ?></span>
+					<input type="text" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback_username]" value="<?php echo esc_attr( $s['fallback_username'] ); ?>" autocomplete="off" />
+				</label>
+				<label>
+					<span><?php esc_html_e( 'Fallback Password', 'flow-smtp' ); ?></span>
+					<input type="password" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[fallback_password]" value="<?php echo $s['fallback_password'] ? '********' : ''; ?>" autocomplete="new-password" />
+				</label>
+			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'If the primary connection (or API) fails, the email is immediately retried once through this backup connection before scheduled retries kick in. Use a different provider for the fallback so one outage cannot take both down.', 'flow-smtp' ); ?></p>
 
 			<h2><?php esc_html_e( 'Sender', 'flow-smtp' ); ?></h2>
 			<div class="flowsmtp-grid">
