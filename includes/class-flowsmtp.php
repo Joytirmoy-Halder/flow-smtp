@@ -167,6 +167,7 @@ final class FlowSMTP {
 			'alerts'              => 0,
 			'alert_email'         => get_option( 'admin_email' ),
 			'alert_webhook'       => '',
+			'uninstall_data'      => 'keep',
 		);
 
 		$settings = wp_parse_args( (array) get_option( FLOWSMTP_OPTION_KEY, array() ), $defaults );
