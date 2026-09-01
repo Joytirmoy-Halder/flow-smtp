@@ -104,9 +104,25 @@ class FlowSMTP_Admin {
 			$clean['fallback_password'] = isset( $old['fallback_password'] ) ? $old['fallback_password'] : '';
 		}
 
-		$clean['from_email']    = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
-		$clean['from_name']     = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
-		$clean['force_from']    = empty( $input['force_from'] ) ? 0 : 1;
+		$clean['from_email'] = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
+		$clean['from_name']  = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
+		$clean['force_from'] = empty( $input['force_from'] ) ? 0 : 1;
+
+		// Test mode (email interception).
+		$clean['test_mode']        = empty( $input['test_mode'] ) ? 0 : 1;
+		$clean['test_mode_action'] = isset( $input['test_mode_action'] ) && in_array( $input['test_mode_action'], array( 'redirect', 'log' ), true ) ? $input['test_mode_action'] : 'redirect';
+		$clean['test_mode_to']     = isset( $input['test_mode_to'] ) && is_email( $input['test_mode_to'] ) ? sanitize_email( $input['test_mode_to'] ) : get_option( 'admin_email' );
+
+		$allowlist = isset( $input['test_mode_allowlist'] ) ? (string) $input['test_mode_allowlist'] : '';
+		$entries   = array();
+		foreach ( preg_split( '/[\r\n,;]+/', $allowlist ) as $entry ) {
+			$entry = sanitize_text_field( trim( $entry ) );
+			if ( '' !== $entry ) {
+				$entries[] = $entry;
+			}
+		}
+		$clean['test_mode_allowlist'] = implode( "\n", $entries );
+
 		$clean['logging']       = empty( $input['logging'] ) ? 0 : 1;
 		$clean['log_body']      = empty( $input['log_body'] ) ? 0 : 1;
 		$clean['log_retention'] = isset( $input['log_retention'] ) ? absint( $input['log_retention'] ) : 30;
@@ -452,6 +468,33 @@ class FlowSMTP_Admin {
 			</label>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Deliverability tip: the From domain should match the domain your SMTP provider signs (DKIM), or your emails may land in spam.', 'flow-smtp' ); ?></p>
 
+			<h2><?php esc_html_e( 'Test Mode', 'flow-smtp' ); ?></h2>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[test_mode]" value="1" <?php checked( $s['test_mode'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Intercept all outgoing email (staging / development mode)', 'flow-smtp' ); ?>
+			</label>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'What to do with intercepted email', 'flow-smtp' ); ?></span>
+					<select name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[test_mode_action]">
+						<option value="redirect" <?php selected( $s['test_mode_action'], 'redirect' ); ?>><?php esc_html_e( 'Redirect to a single address', 'flow-smtp' ); ?></option>
+						<option value="log" <?php selected( $s['test_mode_action'], 'log' ); ?>><?php esc_html_e( 'Log only — do not deliver', 'flow-smtp' ); ?></option>
+					</select>
+				</label>
+				<label>
+					<span><?php esc_html_e( 'Redirect all email to', 'flow-smtp' ); ?></span>
+					<input type="email" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[test_mode_to]" value="<?php echo esc_attr( $s['test_mode_to'] ); ?>" />
+				</label>
+			</div>
+			<div class="flowsmtp-grid">
+				<label>
+					<span><?php esc_html_e( 'Allowlist (one address or domain per line)', 'flow-smtp' ); ?></span>
+					<textarea name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[test_mode_allowlist]" rows="4" placeholder="you@example.com&#10;yourcompany.com"><?php echo esc_textarea( $s['test_mode_allowlist'] ); ?></textarea>
+				</label>
+			</div>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Perfect for staging sites and site clones: customers never receive email from a copy of your site. Intercepted emails get a “Test Mode” subject prefix, a banner listing the original recipients, and their Cc/Bcc headers are stripped. Addresses or domains on the allowlist are still delivered normally, and the FlowSMTP “Send Test” tab always bypasses test mode so you can still verify your configuration.', 'flow-smtp' ); ?></p>
+
 			<h2><?php esc_html_e( 'Logging', 'flow-smtp' ); ?></h2>
 			<label class="flowsmtp-toggle">
 				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[logging]" value="1" <?php checked( $s['logging'], 1 ); ?> />
@@ -532,7 +575,7 @@ class FlowSMTP_Admin {
 	private function render_test_tab() {
 		?>
 		<h2><?php esc_html_e( 'Send a Test Email', 'flow-smtp' ); ?></h2>
-		<p class="flowsmtp-muted"><?php esc_html_e( 'Verify your configuration by sending a real email through your server or provider API. The result is also recorded in the email log.', 'flow-smtp' ); ?></p>
+		<p class="flowsmtp-muted"><?php esc_html_e( 'Verify your configuration by sending a real email through your server or provider API. The result is also recorded in the email log. Test emails always bypass test mode.', 'flow-smtp' ); ?></p>
 		<div class="flowsmtp-grid">
 			<label>
 				<span><?php esc_html_e( 'Recipient', 'flow-smtp' ); ?></span>
@@ -825,7 +868,10 @@ class FlowSMTP_Admin {
 		$to   = isset( $_POST['to'] ) ? sanitize_email( wp_unslash( $_POST['to'] ) ) : '';
 		$html = ! empty( $_POST['html'] );
 
-		$result = flowsmtp()->mailer->send_test_email( $to, $html );
+		// Test emails must always go out, even while test mode intercepts everything else.
+		FlowSMTP_Test_Mode::$bypass = true;
+		$result                     = flowsmtp()->mailer->send_test_email( $to, $html );
+		FlowSMTP_Test_Mode::$bypass = false;
 
 		if ( $result['success'] ) {
 			wp_send_json_success( array( 'message' => $result['message'] ) );
