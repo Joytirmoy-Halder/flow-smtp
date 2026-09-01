@@ -83,7 +83,7 @@
 					notice( $result, res.success ? 'success' : 'error', res.data.message );
 				} )
 				.fail( function () {
-					notice( $result, 'error', 'Request failed. Please try again.' );
+					notice( $result, 'error', FlowSMTP.i18n.requestFailed );
 				} )
 				.always( function () {
 					$btn.prop( 'disabled', false ).text( original );
@@ -122,7 +122,7 @@
 					$out.html( '<ul class="flowsmtp-checklist">' + html + '</ul>' ).prop( 'hidden', false );
 				} )
 				.fail( function () {
-					$out.html( '<div class="flowsmtp-notice is-error">Request failed. Please try again.</div>' ).prop( 'hidden', false );
+					$out.html( '<div class="flowsmtp-notice is-error">' + escHtml( FlowSMTP.i18n.requestFailed ) + '</div>' ).prop( 'hidden', false );
 				} )
 				.always( function () {
 					$btn.prop( 'disabled', false ).text( original );
@@ -181,22 +181,81 @@
 					'<dt>To</dt><dd>' + escHtml( d.to ) + '</dd>' +
 					'<dt>Status</dt><dd>' + escHtml( d.status ) + '</dd>' +
 					'<dt>Date</dt><dd>' + escHtml( d.date ) + '</dd>' +
+					'<dt>Format</dt><dd>' + escHtml( d.format ) + '</dd>' +
 					'<dt>Retries</dt><dd>' + d.retries + '</dd>' +
 					( d.error ? '<dt>Error</dt><dd>' + escHtml( d.error ) + '</dd>' : '' ) +
 					( d.headers ? '<dt>Headers</dt><dd>' + escHtml( d.headers ) + '</dd>' : '' ) +
 					( attachments ? '<dt>Attachments</dt><dd>' + attachments + '</dd>' : '' ) +
 					'</dl>' +
+					/* Preview switcher: rendered body vs. raw source. */
+					'<div class="flowsmtp-preview-tabs">' +
+					'<button type="button" class="flowsmtp-preview-tab is-active" data-view="rendered">' + escHtml( FlowSMTP.i18n.rendered ) + '</button>' +
+					'<button type="button" class="flowsmtp-preview-tab" data-view="source">' + escHtml( FlowSMTP.i18n.source ) + '</button>' +
+					'</div>' +
 					/* Body is rendered inside a sandboxed iframe: no scripts, no forms, no navigation, no referrer. */
-					'<iframe class="flowsmtp-modal-body" sandbox referrerpolicy="no-referrer" srcdoc="' + escAttr( d.message ) + '"></iframe>';
+					'<iframe class="flowsmtp-modal-body flowsmtp-preview-pane" data-view="rendered" sandbox referrerpolicy="no-referrer" srcdoc="' + escAttr( d.message ) + '"></iframe>' +
+					'<pre class="flowsmtp-source flowsmtp-preview-pane" data-view="source" hidden>' + escHtml( d.raw ) + '</pre>' +
+					/* Send a copy of this email elsewhere for a real-client check. */
+					'<div class="flowsmtp-preview-send">' +
+					'<label for="flowsmtp-preview-to">' + escHtml( FlowSMTP.i18n.previewIntro ) + '</label>' +
+					'<div class="flowsmtp-preview-send-row">' +
+					'<input type="email" id="flowsmtp-preview-to" value="' + escAttr( FlowSMTP.currentUser || '' ) + '" />' +
+					'<button type="button" class="flowsmtp-btn flowsmtp-send-preview" data-id="' + escAttr( id ) + '">' + escHtml( FlowSMTP.i18n.sendPreview ) + '</button>' +
+					'</div>' +
+					'<div class="flowsmtp-notice flowsmtp-preview-result" hidden></div>' +
+					'</div>';
 
 				$( '#flowsmtp-modal .flowsmtp-modal-content' ).html( html );
 				$( '#flowsmtp-modal' ).prop( 'hidden', false );
 			} );
 		} );
 
+		/* Preview tabs: rendered <-> source */
+		$( document ).on( 'click', '.flowsmtp-preview-tab', function () {
+			var view = $( this ).data( 'view' );
+
+			$( '.flowsmtp-preview-tab' ).removeClass( 'is-active' );
+			$( this ).addClass( 'is-active' );
+
+			$( '.flowsmtp-preview-pane' ).each( function () {
+				$( this ).prop( 'hidden', $( this ).data( 'view' ) !== view );
+			} );
+		} );
+
+		/* Send a copy of a logged email to any address */
+		$( document ).on( 'click', '.flowsmtp-send-preview', function () {
+			var $btn = $( this ),
+				$result = $( '.flowsmtp-preview-result' ),
+				original = $btn.text();
+
+			$btn.prop( 'disabled', true ).text( FlowSMTP.i18n.sending );
+			$result.prop( 'hidden', true );
+
+			ajax( 'flowsmtp_preview_send', {
+				id: $btn.data( 'id' ),
+				to: $( '#flowsmtp-preview-to' ).val()
+			} )
+				.done( function ( res ) {
+					notice( $result, res.success ? 'success' : 'error', res.data.message );
+				} )
+				.fail( function () {
+					notice( $result, 'error', FlowSMTP.i18n.requestFailed );
+				} )
+				.always( function () {
+					$btn.prop( 'disabled', false ).text( original );
+				} );
+		} );
+
 		/* Modal close */
 		$( document ).on( 'click', '.flowsmtp-modal-close, .flowsmtp-modal-backdrop', function () {
 			$( '#flowsmtp-modal' ).prop( 'hidden', true );
+		} );
+
+		/* Close the modal with Escape */
+		$( document ).on( 'keyup', function ( e ) {
+			if ( 27 === e.keyCode ) {
+				$( '#flowsmtp-modal' ).prop( 'hidden', true );
+			}
 		} );
 
 		/* Select all */

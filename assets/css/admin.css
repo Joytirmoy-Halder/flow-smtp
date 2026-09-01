@@ -390,15 +390,68 @@
 .flowsmtp-modal-content dt { font-weight: 600; color: var(--fsm-muted); }
 .flowsmtp-modal-content dd { margin: 0; word-break: break-word; }
 
+/* Preview switcher: rendered vs. source */
+.flowsmtp-preview-tabs { display: flex; gap: 4px; margin: 16px 0 -1px; }
+.flowsmtp-preview-tab {
+	background: var(--fsm-bg);
+	border: 1px solid var(--fsm-border);
+	border-bottom-color: var(--fsm-border);
+	border-radius: var(--fsm-radius) var(--fsm-radius) 0 0;
+	padding: 5px 12px;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--fsm-muted);
+	cursor: pointer;
+}
+.flowsmtp-preview-tab:hover { color: var(--fsm-accent); }
+.flowsmtp-preview-tab.is-active {
+	background: #fff;
+	color: var(--fsm-text);
+	font-weight: 600;
+	border-bottom-color: #fff;
+}
+
 /* Sandboxed email body preview */
 iframe.flowsmtp-modal-body {
 	display: block;
 	width: 100%;
 	height: 300px;
-	margin-top: 12px;
+	margin-top: 0;
 	border: 1px solid var(--fsm-border);
-	border-radius: var(--fsm-radius);
+	border-radius: 0 var(--fsm-radius) var(--fsm-radius) var(--fsm-radius);
 	background: #fff;
 }
+iframe.flowsmtp-modal-body[hidden] { display: none; }
+
+/* Raw source view */
+.flowsmtp-source {
+	margin: 0;
+	padding: 12px;
+	height: 300px;
+	overflow: auto;
+	border: 1px solid var(--fsm-border);
+	border-radius: 0 var(--fsm-radius) var(--fsm-radius) var(--fsm-radius);
+	background: var(--fsm-bg);
+	font-family: Consolas, Monaco, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+	color: var(--fsm-text);
+}
+
+/* Send a copy of this email */
+.flowsmtp-preview-send { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--fsm-border-soft); }
+.flowsmtp-preview-send label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.flowsmtp-preview-send-row { display: flex; gap: 6px; }
+.flowsmtp-preview-send-row input[type="email"] {
+	flex: 1;
+	border: 1px solid #8c8f94;
+	border-radius: var(--fsm-radius);
+	padding: 5px 10px;
+	font-size: 13px;
+}
+.flowsmtp-preview-send-row input[type="email"]:focus { border-color: var(--fsm-accent); box-shadow: 0 0 0 1px var(--fsm-accent); outline: none; }
+.flowsmtp-preview-result { margin-top: 10px; }
 
 .flowsmtp-actions { margin-top: 18px; }

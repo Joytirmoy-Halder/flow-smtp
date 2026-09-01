@@ -29,6 +29,7 @@ class FlowSMTP_Admin {
 		add_action( 'wp_ajax_flowsmtp_resend', array( $this, 'ajax_resend' ) );
 		add_action( 'wp_ajax_flowsmtp_delete_logs', array( $this, 'ajax_delete_logs' ) );
 		add_action( 'wp_ajax_flowsmtp_view_log', array( $this, 'ajax_view_log' ) );
+		add_action( 'wp_ajax_flowsmtp_preview_send', array( $this, 'ajax_preview_send' ) );
 		add_action( 'wp_ajax_flowsmtp_check_domain', array( $this, 'ajax_check_domain' ) );
 		add_action( 'admin_post_flowsmtp_export_csv', array( $this, 'export_csv' ) );
 	}
@@ -130,16 +131,23 @@ class FlowSMTP_Admin {
 			'flowsmtp-admin',
 			'FlowSMTP',
 			array(
-				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'nonce'   => wp_create_nonce( 'flowsmtp_admin' ),
-				'presets' => FlowSMTP_Providers::all(),
-				'i18n'    => array(
-					'sending'     => __( 'Sending…', 'flow-smtp' ),
-					'resending'   => __( 'Resending…', 'flow-smtp' ),
-					'checking'    => __( 'Checking…', 'flow-smtp' ),
+				'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
+				'nonce'       => wp_create_nonce( 'flowsmtp_admin' ),
+				'presets'     => FlowSMTP_Providers::all(),
+				'currentUser' => wp_get_current_user()->user_email,
+				'i18n'        => array(
+					'sending'       => __( 'Sending…', 'flow-smtp' ),
+					'resending'     => __( 'Resending…', 'flow-smtp' ),
+					'checking'      => __( 'Checking…', 'flow-smtp' ),
 					'confirmDelete' => __( 'Delete the selected log entries? This cannot be undone.', 'flow-smtp' ),
-					'docs'        => __( 'Setup guide', 'flow-smtp' ),
-					'missingFile' => __( 'File missing', 'flow-smtp' ),
+					'docs'          => __( 'Setup guide', 'flow-smtp' ),
+					'missingFile'   => __( 'File missing', 'flow-smtp' ),
+					'rendered'      => __( 'Rendered', 'flow-smtp' ),
+					'source'        => __( 'Source', 'flow-smtp' ),
+					'plainText'     => __( 'Plain text', 'flow-smtp' ),
+					'sendPreview'   => __( 'Send preview', 'flow-smtp' ),
+					'previewIntro'  => __( 'Send a copy of this email to:', 'flow-smtp' ),
+					'requestFailed' => __( 'Request failed. Please try again.', 'flow-smtp' ),
 				),
 			)
 		);
@@ -595,6 +603,20 @@ class FlowSMTP_Admin {
 	}
 
 	/**
+	 * Whether the stored headers declare an HTML body.
+	 *
+	 * @param mixed $headers Stored headers.
+	 * @return bool
+	 */
+	private static function headers_are_html( $headers ) {
+		if ( is_array( $headers ) ) {
+			$headers = implode( "\n", $headers );
+		}
+
+		return false !== stripos( (string) $headers, 'text/html' );
+	}
+
+	/**
 	 * Render the logs table.
 	 *
 	 * @param string $status Filter by status ('' = all).
@@ -842,12 +864,18 @@ class FlowSMTP_Admin {
 			wp_send_json_error( array( 'message' => __( 'Log entry not found.', 'flow-smtp' ) ) );
 		}
 
+		$is_html = self::headers_are_html( $log->headers );
+
 		wp_send_json_success(
 			array(
 				'to'          => $log->mail_to,
 				'subject'     => $log->subject,
 				// Sanitized server-side; additionally rendered inside a sandboxed iframe client-side.
 				'message'     => wp_kses_post( $log->message ),
+				// Raw stored body for the source view; escaped as text client-side.
+				'raw'         => (string) $log->message,
+				'isHtml'      => $is_html,
+				'format'      => $is_html ? __( 'HTML', 'flow-smtp' ) : __( 'Plain text', 'flow-smtp' ),
 				'headers'     => $log->headers,
 				'status'      => $log->status,
 				'error'       => $log->error_message,
@@ -856,6 +884,59 @@ class FlowSMTP_Admin {
 				'attachments' => self::parse_attachments( $log->attachments ),
 			)
 		);
+	}
+
+	/**
+	 * Send a copy of a logged email to an arbitrary address for previewing.
+	 *
+	 * The body and content type are preserved; the subject is prefixed so the
+	 * copy is never mistaken for the original. Attachments are not re-attached.
+	 */
+	public function ajax_preview_send() {
+		$this->verify_ajax();
+
+		$id = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		$to = isset( $_POST['to'] ) ? sanitize_email( wp_unslash( $_POST['to'] ) ) : '';
+
+		if ( ! is_email( $to ) ) {
+			wp_send_json_error( array( 'message' => __( 'Please enter a valid email address.', 'flow-smtp' ) ) );
+		}
+
+		$log = $this->logger->get( $id );
+		if ( ! $log ) {
+			wp_send_json_error( array( 'message' => __( 'Log entry not found.', 'flow-smtp' ) ) );
+		}
+
+		$headers = array();
+		if ( self::headers_are_html( $log->headers ) ) {
+			$headers[] = 'Content-Type: text/html; charset=UTF-8';
+		}
+
+		$error   = '';
+		$capture = static function ( $wp_error ) use ( &$error ) {
+			$error = $wp_error->get_error_message();
+		};
+
+		add_action( 'wp_mail_failed', $capture );
+		$sent = wp_mail(
+			$to,
+			/* translators: %s: original email subject. */
+			sprintf( __( '[Preview] %s', 'flow-smtp' ), $log->subject ),
+			$log->message,
+			$headers
+		);
+		remove_action( 'wp_mail_failed', $capture );
+
+		if ( $sent ) {
+			wp_send_json_success(
+				array(
+					/* translators: %s: recipient email address. */
+					'message' => sprintf( __( 'Preview sent to %s.', 'flow-smtp' ), $to ),
+				)
+			);
+		}
+
+		wp_send_json_error( array( 'message' => $error ? $error : __( 'The preview could not be sent.', 'flow-smtp' ) ) );
 	}
 
 	public function ajax_check_domain() {
