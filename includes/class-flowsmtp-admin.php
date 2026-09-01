@@ -123,6 +123,10 @@ class FlowSMTP_Admin {
 		}
 		$clean['test_mode_allowlist'] = implode( "\n", $entries );
 
+		// Engagement tracking.
+		$clean['track_opens']  = empty( $input['track_opens'] ) ? 0 : 1;
+		$clean['track_clicks'] = empty( $input['track_clicks'] ) ? 0 : 1;
+
 		$clean['logging']       = empty( $input['logging'] ) ? 0 : 1;
 		$clean['log_body']      = empty( $input['log_body'] ) ? 0 : 1;
 		$clean['log_retention'] = isset( $input['log_retention'] ) ? absint( $input['log_retention'] ) : 30;
@@ -495,6 +499,19 @@ class FlowSMTP_Admin {
 			</div>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Perfect for staging sites and site clones: customers never receive email from a copy of your site. Intercepted emails get a “Test Mode” subject prefix, a banner listing the original recipients, and their Cc/Bcc headers are stripped. Addresses or domains on the allowlist are still delivered normally, and the FlowSMTP “Send Test” tab always bypasses test mode so you can still verify your configuration.', 'flow-smtp' ); ?></p>
 
+			<h2><?php esc_html_e( 'Open & Click Tracking', 'flow-smtp' ); ?></h2>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[track_opens]" value="1" <?php checked( $s['track_opens'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Track opens (adds an invisible 1×1 pixel to HTML emails)', 'flow-smtp' ); ?>
+			</label>
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[track_clicks]" value="1" <?php checked( $s['track_clicks'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Track clicks (links are rewritten through a signed redirect)', 'flow-smtp' ); ?>
+			</label>
+			<p class="flowsmtp-muted"><?php esc_html_e( 'Tracking applies to HTML emails only and stores nothing personal — no IP addresses or user agents, just open/click counters and timestamps on the log entry. Click links are signed, so the redirect can never be abused to point somewhere else. Note that many mail clients block remote images, so open rates are always an underestimate, and privacy laws in your region may require disclosure or consent.', 'flow-smtp' ); ?></p>
+
 			<h2><?php esc_html_e( 'Logging', 'flow-smtp' ); ?></h2>
 			<label class="flowsmtp-toggle">
 				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[logging]" value="1" <?php checked( $s['logging'], 1 ); ?> />
@@ -540,7 +557,7 @@ class FlowSMTP_Admin {
 				</label>
 				<label>
 					<span><?php esc_html_e( 'Webhook URL (Slack / Discord compatible, optional)', 'flow-smtp' ); ?></span>
-					<input type="url" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[alert_webhook]" value="<?php echo esc_attr( $s['alert_webhook'] ); ?>" placeholder="https://hooks.slack.com/services/…" />
+					<input type="url" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[alert_webhook]" value="<?php echo esc_attr( $s['alert_webhook'] ); ?>" placeholder="<?php esc_attr_e( 'Slack or Discord incoming webhook URL', 'flow-smtp' ); ?>" />
 				</label>
 			</div>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Alerts are throttled to one per 5 minutes. Tip: if your SMTP server is down, the alert email may also fail — a webhook is the more reliable channel.', 'flow-smtp' ); ?></p>
@@ -732,7 +749,11 @@ class FlowSMTP_Admin {
 					<tr><td colspan="6" class="flowsmtp-empty"><?php esc_html_e( 'No emails logged yet.', 'flow-smtp' ); ?></td></tr>
 				<?php else : ?>
 					<?php foreach ( $result['items'] as $row ) : ?>
-						<?php $files = self::parse_attachments( $row->attachments ); ?>
+						<?php
+						$files  = self::parse_attachments( $row->attachments );
+						$opens  = isset( $row->opens ) ? (int) $row->opens : 0;
+						$clicks = isset( $row->clicks ) ? (int) $row->clicks : 0;
+						?>
 						<tr>
 							<td class="col-check"><input type="checkbox" class="flowsmtp-check" value="<?php echo esc_attr( $row->id ); ?>" /></td>
 							<td><?php echo esc_html( $row->mail_to ); ?></td>
@@ -742,6 +763,16 @@ class FlowSMTP_Admin {
 								<?php if ( $files ) : ?>
 									<span class="flowsmtp-clip" title="<?php echo esc_attr( implode( ', ', wp_list_pluck( $files, 'name' ) ) ); ?>">
 										<span class="dashicons dashicons-paperclip"></span><?php echo esc_html( count( $files ) ); ?>
+									</span>
+								<?php endif; ?>
+								<?php if ( $opens > 0 ) : ?>
+									<span class="flowsmtp-clip" title="<?php echo esc_attr( sprintf( /* translators: %s: date and time. */ __( 'First opened %s', 'flow-smtp' ), mysql2date( 'M j, Y g:i a', $row->first_open_at ) ) ); ?>">
+										<span class="dashicons dashicons-visibility"></span><?php echo esc_html( $opens ); ?>
+									</span>
+								<?php endif; ?>
+								<?php if ( $clicks > 0 ) : ?>
+									<span class="flowsmtp-clip" title="<?php echo esc_attr( sprintf( /* translators: %s: URL. */ __( 'Last link clicked: %s', 'flow-smtp' ), (string) $row->last_click_url ) ); ?>">
+										<span class="dashicons dashicons-admin-links"></span><?php echo esc_html( $clicks ); ?>
 									</span>
 								<?php endif; ?>
 							</td>
@@ -798,7 +829,7 @@ class FlowSMTP_Admin {
 		header( 'Content-Disposition: attachment; filename=flowsmtp-logs-' . gmdate( 'Ymd-His' ) . '.csv' );
 
 		$out = fopen( 'php://output', 'w' );
-		fputcsv( $out, array( 'ID', 'To', 'Subject', 'Status', 'Test', 'Retries', 'Attachments', 'Error', 'Created (site time)', 'Updated (site time)' ) );
+		fputcsv( $out, array( 'ID', 'To', 'Subject', 'Status', 'Test', 'Retries', 'Attachments', 'Opens', 'Clicks', 'Error', 'Created (site time)', 'Updated (site time)' ) );
 
 		$page     = 1;
 		$per_page = 500;
@@ -826,6 +857,8 @@ class FlowSMTP_Admin {
 						$row->is_test ? 'yes' : 'no',
 						(int) $row->retries,
 						self::csv_safe( implode( ' | ', wp_list_pluck( $files, 'name' ) ) ),
+						isset( $row->opens ) ? (int) $row->opens : 0,
+						isset( $row->clicks ) ? (int) $row->clicks : 0,
 						self::csv_safe( $row->error_message ),
 						$row->created_at,
 						$row->updated_at,
@@ -927,6 +960,9 @@ class FlowSMTP_Admin {
 				'error'       => $log->error_message,
 				'date'        => mysql2date( 'M j, Y g:i a', $log->created_at ),
 				'retries'     => (int) $log->retries,
+				'opens'       => isset( $log->opens ) ? (int) $log->opens : 0,
+				'clicks'      => isset( $log->clicks ) ? (int) $log->clicks : 0,
+				'lastClick'   => isset( $log->last_click_url ) ? (string) $log->last_click_url : '',
 				'attachments' => self::parse_attachments( $log->attachments ),
 			)
 		);

@@ -47,6 +47,13 @@ final class FlowSMTP {
 	public $test_mode;
 
 	/**
+	 * Open & click tracking component.
+	 *
+	 * @var FlowSMTP_Tracking
+	 */
+	public $tracking;
+
+	/**
 	 * Admin component.
 	 *
 	 * @var FlowSMTP_Admin|null
@@ -77,6 +84,7 @@ final class FlowSMTP {
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-mailer.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-api-mailer.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-test-mode.php';
+		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-tracking.php';
 
 		if ( is_admin() ) {
 			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-admin.php';
@@ -88,6 +96,7 @@ final class FlowSMTP {
 		$this->mailer     = new FlowSMTP_Mailer( $this->logger );
 		$this->api_mailer = new FlowSMTP_API_Mailer();
 		$this->test_mode  = new FlowSMTP_Test_Mode();
+		$this->tracking   = new FlowSMTP_Tracking();
 
 		if ( is_admin() ) {
 			$this->admin = new FlowSMTP_Admin( $this->logger );
@@ -125,6 +134,8 @@ final class FlowSMTP {
 			'test_mode_action'    => 'redirect',
 			'test_mode_to'        => get_option( 'admin_email' ),
 			'test_mode_allowlist' => '',
+			'track_opens'         => 0,
+			'track_clicks'        => 0,
 			'logging'             => 1,
 			'log_body'            => 1,
 			'log_retention'       => 30,
