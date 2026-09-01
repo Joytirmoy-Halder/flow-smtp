@@ -21,6 +21,10 @@
 			.replace( />/g, '&gt;' );
 	}
 
+	function escHtml( s ) {
+		return $( '<span>' ).text( String( s ) ).html();
+	}
+
 	$( function () {
 		/* Provider preset autofill */
 		$( '#flowsmtp-provider' ).on( 'change', function () {
@@ -101,7 +105,7 @@
 			} )
 				.done( function ( res ) {
 					if ( ! res.success ) {
-						$out.html( '<div class="flowsmtp-notice is-error">' + escAttr( res.data.message ) + '</div>' ).prop( 'hidden', false );
+						$out.html( '<div class="flowsmtp-notice is-error">' + escHtml( res.data.message ) + '</div>' ).prop( 'hidden', false );
 						return;
 					}
 
@@ -109,9 +113,9 @@
 					$.each( res.data.checks, function ( i, c ) {
 						html +=
 							'<li>' +
-							'<span class="flowsmtp-badge ' + ( badge[ c.status ] || 'is-pending' ) + '">' + escAttr( c.status.toUpperCase() ) + '</span>' +
-							'<strong>' + escAttr( c.label ) + '</strong>' +
-							'<span class="flowsmtp-check-detail">' + escAttr( c.detail ) + '</span>' +
+							'<span class="flowsmtp-badge ' + ( badge[ c.status ] || 'is-pending' ) + '">' + escHtml( c.status.toUpperCase() ) + '</span>' +
+							'<strong>' + escHtml( c.label ) + '</strong>' +
+							'<span class="flowsmtp-check-detail">' + escHtml( c.detail ) + '</span>' +
 							'</li>';
 					} );
 
@@ -155,18 +159,35 @@
 				}
 
 				var d = res.data,
-					html =
-						'<h3>' + $( '<span>' ).text( d.subject ).html() + '</h3>' +
-						'<dl>' +
-						'<dt>To</dt><dd>' + $( '<span>' ).text( d.to ).html() + '</dd>' +
-						'<dt>Status</dt><dd>' + $( '<span>' ).text( d.status ).html() + '</dd>' +
-						'<dt>Date</dt><dd>' + $( '<span>' ).text( d.date ).html() + '</dd>' +
-						'<dt>Retries</dt><dd>' + d.retries + '</dd>' +
-						( d.error ? '<dt>Error</dt><dd>' + $( '<span>' ).text( d.error ).html() + '</dd>' : '' ) +
-						( d.headers ? '<dt>Headers</dt><dd>' + $( '<span>' ).text( d.headers ).html() + '</dd>' : '' ) +
-						'</dl>' +
-						/* Body is rendered inside a sandboxed iframe: no scripts, no forms, no navigation, no referrer. */
-						'<iframe class="flowsmtp-modal-body" sandbox referrerpolicy="no-referrer" srcdoc="' + escAttr( d.message ) + '"></iframe>';
+					attachments = '';
+
+				if ( d.attachments && d.attachments.length ) {
+					attachments = '<ul class="flowsmtp-attachments">';
+					$.each( d.attachments, function ( i, a ) {
+						attachments +=
+							'<li title="' + escAttr( a.path ) + '">' +
+							'<span class="dashicons dashicons-paperclip"></span>' +
+							'<span class="flowsmtp-attachment-name">' + escHtml( a.name ) + '</span>' +
+							( a.size ? '<span class="flowsmtp-attachment-size">' + escHtml( a.size ) + '</span>' : '' ) +
+							( a.exists ? '' : '<span class="flowsmtp-badge is-failed">' + escHtml( FlowSMTP.i18n.missingFile ) + '</span>' ) +
+							'</li>';
+					} );
+					attachments += '</ul>';
+				}
+
+				var html =
+					'<h3>' + escHtml( d.subject ) + '</h3>' +
+					'<dl>' +
+					'<dt>To</dt><dd>' + escHtml( d.to ) + '</dd>' +
+					'<dt>Status</dt><dd>' + escHtml( d.status ) + '</dd>' +
+					'<dt>Date</dt><dd>' + escHtml( d.date ) + '</dd>' +
+					'<dt>Retries</dt><dd>' + d.retries + '</dd>' +
+					( d.error ? '<dt>Error</dt><dd>' + escHtml( d.error ) + '</dd>' : '' ) +
+					( d.headers ? '<dt>Headers</dt><dd>' + escHtml( d.headers ) + '</dd>' : '' ) +
+					( attachments ? '<dt>Attachments</dt><dd>' + attachments + '</dd>' : '' ) +
+					'</dl>' +
+					/* Body is rendered inside a sandboxed iframe: no scripts, no forms, no navigation, no referrer. */
+					'<iframe class="flowsmtp-modal-body" sandbox referrerpolicy="no-referrer" srcdoc="' + escAttr( d.message ) + '"></iframe>';
 
 				$( '#flowsmtp-modal .flowsmtp-modal-content' ).html( html );
 				$( '#flowsmtp-modal' ).prop( 'hidden', false );
