@@ -26,6 +26,13 @@ final class FlowSMTP {
 	public $mailer;
 
 	/**
+	 * API mailer component.
+	 *
+	 * @var FlowSMTP_API_Mailer
+	 */
+	public $api_mailer;
+
+	/**
 	 * Logger component.
 	 *
 	 * @var FlowSMTP_Logger
@@ -61,6 +68,7 @@ final class FlowSMTP {
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-deliverability.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-logger.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-mailer.php';
+		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-api-mailer.php';
 
 		if ( is_admin() ) {
 			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-admin.php';
@@ -68,8 +76,9 @@ final class FlowSMTP {
 	}
 
 	private function init() {
-		$this->logger = new FlowSMTP_Logger();
-		$this->mailer = new FlowSMTP_Mailer( $this->logger );
+		$this->logger     = new FlowSMTP_Logger();
+		$this->mailer     = new FlowSMTP_Mailer( $this->logger );
+		$this->api_mailer = new FlowSMTP_API_Mailer();
 
 		if ( is_admin() ) {
 			$this->admin = new FlowSMTP_Admin( $this->logger );
@@ -84,12 +93,15 @@ final class FlowSMTP {
 	public static function get_settings() {
 		$defaults = array(
 			'provider'      => 'custom',
+			'mailer_type'   => 'smtp',
 			'host'          => '',
 			'port'          => 587,
 			'encryption'    => 'tls',
 			'auth'          => 1,
 			'username'      => '',
 			'password'      => '',
+			'api_key'       => '',
+			'api_domain'    => '',
 			'from_email'    => get_option( 'admin_email' ),
 			'from_name'     => get_option( 'blogname' ),
 			'force_from'    => 1,
