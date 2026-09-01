@@ -176,20 +176,20 @@
 					attachments += '</ul>';
 				}
 
-				/* Open & click stats, only when tracking recorded something. */
+				/* Open & click stats, only shown once tracking recorded something. */
 				if ( d.opens || d.clicks ) {
 					engagement =
 						'<div class="flowsmtp-engagement">' +
 						'<span class="flowsmtp-engagement-count">' +
 						'<span class="dashicons dashicons-visibility"></span>' +
-						escHtml( d.opens + ' ' + FlowSMTP.i18n.opens ) +
+						escHtml( d.opens + ' opens' ) +
 						'</span>' +
 						'<span class="flowsmtp-engagement-count">' +
 						'<span class="dashicons dashicons-admin-links"></span>' +
-						escHtml( d.clicks + ' ' + FlowSMTP.i18n.clicks ) +
+						escHtml( d.clicks + ' clicks' ) +
 						'</span>' +
 						( d.lastClick
-							? '<span class="flowsmtp-engagement-link">' + escHtml( FlowSMTP.i18n.lastClicked + ' ' + d.lastClick ) + '</span>'
+							? '<span class="flowsmtp-engagement-link">' + escHtml( 'Last clicked: ' + d.lastClick ) + '</span>'
 							: '' ) +
 						'</div>';
 				}
@@ -202,7 +202,7 @@
 					'<dt>Date</dt><dd>' + escHtml( d.date ) + '</dd>' +
 					'<dt>Format</dt><dd>' + escHtml( d.format ) + '</dd>' +
 					'<dt>Retries</dt><dd>' + d.retries + '</dd>' +
-					( engagement ? '<dt>' + escHtml( FlowSMTP.i18n.engagement ) + '</dt><dd>' + engagement + '</dd>' : '' ) +
+					( engagement ? '<dt>Engagement</dt><dd>' + engagement + '</dd>' : '' ) +
 					( d.error ? '<dt>Error</dt><dd>' + escHtml( d.error ) + '</dd>' : '' ) +
 					( d.headers ? '<dt>Headers</dt><dd>' + escHtml( d.headers ) + '</dd>' : '' ) +
 					( attachments ? '<dt>Attachments</dt><dd>' + attachments + '</dd>' : '' ) +
