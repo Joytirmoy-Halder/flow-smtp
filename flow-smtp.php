@@ -3,7 +3,7 @@
  * Plugin Name:       FlowSMTP
  * Plugin URI:        https://github.com/Joytirmoy-Halder/flow-smtp
  * Description:       Modern SMTP mailer for WordPress with email logs, failed-email tracking & resend, and a built-in test email system.
- * Version:           0.2.0
+ * Version:           0.3.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Joytirmoy Halder Joyti
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
 }
 
-define( 'FLOWSMTP_VERSION', '0.2.0' );
+define( 'FLOWSMTP_VERSION', '0.3.0' );
 define( 'FLOWSMTP_FILE', __FILE__ );
 define( 'FLOWSMTP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'FLOWSMTP_URL', plugin_dir_url( __FILE__ ) );
@@ -26,9 +26,12 @@ define( 'FLOWSMTP_OPTION_KEY', 'flowsmtp_settings' );
 require_once FLOWSMTP_DIR . 'includes/class-flowsmtp.php';
 
 /**
- * Activation: create the email log table.
+ * Create or upgrade the email log table.
+ *
+ * dbDelta() adds any missing columns, so this doubles as the migration path
+ * for sites upgrading from an earlier version.
  */
-function flowsmtp_activate() {
+function flowsmtp_create_tables() {
 	global $wpdb;
 
 	require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -47,37 +50,64 @@ function flowsmtp_activate() {
 		error_message TEXT NULL,
 		is_test TINYINT(1) NOT NULL DEFAULT 0,
 		retries SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+		tracking_id VARCHAR(32) NULL,
+		opens INT UNSIGNED NOT NULL DEFAULT 0,
+		clicks INT UNSIGNED NOT NULL DEFAULT 0,
+		first_open_at DATETIME NULL,
+		last_open_at DATETIME NULL,
+		last_click_at DATETIME NULL,
+		last_click_url TEXT NULL,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NULL,
 		PRIMARY KEY  (id),
 		KEY status (status),
-		KEY created_at (created_at)
+		KEY created_at (created_at),
+		KEY tracking_id (tracking_id)
 	) {$charset_collate};";
 
 	dbDelta( $sql );
 
-	add_option( 'flowsmtp_db_version', FLOWSMTP_VERSION );
+	update_option( 'flowsmtp_db_version', FLOWSMTP_VERSION );
+}
+
+/**
+ * Activation: create the email log table and seed defaults.
+ */
+function flowsmtp_activate() {
+	flowsmtp_create_tables();
 
 	// Sensible defaults on first activation.
 	add_option(
 		FLOWSMTP_OPTION_KEY,
 		array(
-			'host'           => '',
-			'port'           => 587,
-			'encryption'     => 'tls',
-			'auth'           => 1,
-			'username'       => '',
-			'password'       => '',
-			'from_email'     => get_option( 'admin_email' ),
-			'from_name'      => get_option( 'blogname' ),
-			'force_from'     => 1,
-			'logging'        => 1,
-			'log_body'       => 1,
-			'log_retention'  => 30,
+			'host'          => '',
+			'port'          => 587,
+			'encryption'    => 'tls',
+			'auth'          => 1,
+			'username'      => '',
+			'password'      => '',
+			'from_email'    => get_option( 'admin_email' ),
+			'from_name'     => get_option( 'blogname' ),
+			'force_from'    => 1,
+			'logging'       => 1,
+			'log_body'      => 1,
+			'log_retention' => 30,
 		)
 	);
 }
 register_activation_hook( __FILE__, 'flowsmtp_activate' );
+
+/**
+ * Run pending database upgrades after a plugin update (no reactivation needed).
+ */
+function flowsmtp_maybe_upgrade_db() {
+	if ( get_option( 'flowsmtp_db_version' ) === FLOWSMTP_VERSION ) {
+		return;
+	}
+
+	flowsmtp_create_tables();
+}
+add_action( 'plugins_loaded', 'flowsmtp_maybe_upgrade_db', 5 );
 
 /**
  * Boot the plugin.
