@@ -159,7 +159,8 @@
 				}
 
 				var d = res.data,
-					attachments = '';
+					attachments = '',
+					engagement = '';
 
 				if ( d.attachments && d.attachments.length ) {
 					attachments = '<ul class="flowsmtp-attachments">';
@@ -175,6 +176,24 @@
 					attachments += '</ul>';
 				}
 
+				/* Open & click stats, only shown once tracking recorded something. */
+				if ( d.opens || d.clicks ) {
+					engagement =
+						'<div class="flowsmtp-engagement">' +
+						'<span class="flowsmtp-engagement-count">' +
+						'<span class="dashicons dashicons-visibility"></span>' +
+						escHtml( d.opens + ' opens' ) +
+						'</span>' +
+						'<span class="flowsmtp-engagement-count">' +
+						'<span class="dashicons dashicons-admin-links"></span>' +
+						escHtml( d.clicks + ' clicks' ) +
+						'</span>' +
+						( d.lastClick
+							? '<span class="flowsmtp-engagement-link">' + escHtml( 'Last clicked: ' + d.lastClick ) + '</span>'
+							: '' ) +
+						'</div>';
+				}
+
 				var html =
 					'<h3>' + escHtml( d.subject ) + '</h3>' +
 					'<dl>' +
@@ -183,6 +202,7 @@
 					'<dt>Date</dt><dd>' + escHtml( d.date ) + '</dd>' +
 					'<dt>Format</dt><dd>' + escHtml( d.format ) + '</dd>' +
 					'<dt>Retries</dt><dd>' + d.retries + '</dd>' +
+					( engagement ? '<dt>Engagement</dt><dd>' + engagement + '</dd>' : '' ) +
 					( d.error ? '<dt>Error</dt><dd>' + escHtml( d.error ) + '</dd>' : '' ) +
 					( d.headers ? '<dt>Headers</dt><dd>' + escHtml( d.headers ) + '</dd>' : '' ) +
 					( attachments ? '<dt>Attachments</dt><dd>' + attachments + '</dd>' : '' ) +
