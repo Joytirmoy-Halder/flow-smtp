@@ -40,6 +40,13 @@ final class FlowSMTP {
 	public $logger;
 
 	/**
+	 * Test mode component.
+	 *
+	 * @var FlowSMTP_Test_Mode
+	 */
+	public $test_mode;
+
+	/**
 	 * Admin component.
 	 *
 	 * @var FlowSMTP_Admin|null
@@ -69,6 +76,7 @@ final class FlowSMTP {
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-logger.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-mailer.php';
 		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-api-mailer.php';
+		require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-test-mode.php';
 
 		if ( is_admin() ) {
 			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-admin.php';
@@ -79,6 +87,7 @@ final class FlowSMTP {
 		$this->logger     = new FlowSMTP_Logger();
 		$this->mailer     = new FlowSMTP_Mailer( $this->logger );
 		$this->api_mailer = new FlowSMTP_API_Mailer();
+		$this->test_mode  = new FlowSMTP_Test_Mode();
 
 		if ( is_admin() ) {
 			$this->admin = new FlowSMTP_Admin( $this->logger );
@@ -112,6 +121,10 @@ final class FlowSMTP {
 			'from_email'          => get_option( 'admin_email' ),
 			'from_name'           => get_option( 'blogname' ),
 			'force_from'          => 1,
+			'test_mode'           => 0,
+			'test_mode_action'    => 'redirect',
+			'test_mode_to'        => get_option( 'admin_email' ),
+			'test_mode_allowlist' => '',
 			'logging'             => 1,
 			'log_body'            => 1,
 			'log_retention'       => 30,
