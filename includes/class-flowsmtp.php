@@ -100,6 +100,10 @@ final class FlowSMTP {
 		if ( is_multisite() ) {
 			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-multisite.php';
 		}
+
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-cli.php';
+		}
 	}
 
 	private function init() {
@@ -115,6 +119,10 @@ final class FlowSMTP {
 
 		if ( is_admin() ) {
 			$this->admin = new FlowSMTP_Admin( $this->logger );
+		}
+
+		if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( 'WP_CLI' ) ) {
+			WP_CLI::add_command( 'flowsmtp', 'FlowSMTP_CLI' );
 		}
 	}
 
