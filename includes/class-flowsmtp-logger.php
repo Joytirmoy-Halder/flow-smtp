@@ -87,6 +87,17 @@ class FlowSMTP_Logger {
 	}
 
 	/**
+	 * Temporarily suppress creation of new log rows. Used for fallback-
+	 * connection resends, which must resolve against the original log row
+	 * instead of creating a duplicate entry (and duplicate retries).
+	 *
+	 * @param bool $on Whether to suppress logging.
+	 */
+	public function suppress_logging( $on ) {
+		$this->is_resend = (bool) $on;
+	}
+
+	/**
 	 * Mark the next captured email as sensitive (body will be redacted).
 	 *
 	 * @param string $message Password reset message (unchanged).
