@@ -54,6 +54,13 @@ final class FlowSMTP {
 	public $tracking;
 
 	/**
+	 * Multisite component (only on networks).
+	 *
+	 * @var FlowSMTP_Multisite|null
+	 */
+	public $multisite;
+
+	/**
 	 * Admin component.
 	 *
 	 * @var FlowSMTP_Admin|null
@@ -89,6 +96,10 @@ final class FlowSMTP {
 		if ( is_admin() ) {
 			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-admin.php';
 		}
+
+		if ( is_multisite() ) {
+			require_once FLOWSMTP_DIR . 'includes/class-flowsmtp-multisite.php';
+		}
 	}
 
 	private function init() {
@@ -97,6 +108,10 @@ final class FlowSMTP {
 		$this->api_mailer = new FlowSMTP_API_Mailer();
 		$this->test_mode  = new FlowSMTP_Test_Mode();
 		$this->tracking   = new FlowSMTP_Tracking();
+
+		if ( is_multisite() ) {
+			$this->multisite = new FlowSMTP_Multisite();
+		}
 
 		if ( is_admin() ) {
 			$this->admin = new FlowSMTP_Admin( $this->logger );
@@ -146,6 +161,16 @@ final class FlowSMTP {
 			'alert_webhook'       => '',
 		);
 
-		return wp_parse_args( (array) get_option( FLOWSMTP_OPTION_KEY, array() ), $defaults );
+		$settings = wp_parse_args( (array) get_option( FLOWSMTP_OPTION_KEY, array() ), $defaults );
+
+		/**
+		 * Filter the effective plugin settings.
+		 *
+		 * Used by the multisite component to enforce a network-wide connection,
+		 * and available to developers for environment-specific overrides.
+		 *
+		 * @param array $settings Effective settings.
+		 */
+		return apply_filters( 'flowsmtp_settings', $settings );
 	}
 }
