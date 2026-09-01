@@ -1,6 +1,7 @@
 <?php
 /**
- * SMTP mailer: configures PHPMailer from plugin settings.
+ * SMTP mailer: configures PHPMailer from plugin settings, with an optional
+ * fallback SMTP connection used when the primary connection fails.
  *
  * @package FlowSMTP
  */
@@ -19,6 +20,13 @@ class FlowSMTP_Mailer {
 	private $logger;
 
 	/**
+	 * Whether the current send is a fallback-connection retry.
+	 *
+	 * @var bool
+	 */
+	public $in_fallback = false;
+
+	/**
 	 * @param FlowSMTP_Logger $logger Logger.
 	 */
 	public function __construct( FlowSMTP_Logger $logger ) {
@@ -27,15 +35,33 @@ class FlowSMTP_Mailer {
 		add_action( 'phpmailer_init', array( $this, 'configure_phpmailer' ), PHP_INT_MAX );
 		add_filter( 'wp_mail_from', array( $this, 'filter_from_email' ), PHP_INT_MAX );
 		add_filter( 'wp_mail_from_name', array( $this, 'filter_from_name' ), PHP_INT_MAX );
+
+		// Try the fallback connection before the logger records the failure (priority 5 < 10).
+		add_action( 'wp_mail_failed', array( $this, 'maybe_fallback' ), 5 );
 	}
 
 	/**
-	 * Apply SMTP settings to PHPMailer.
+	 * Apply SMTP settings to PHPMailer. Uses the fallback connection settings
+	 * while a fallback retry is in progress.
 	 *
 	 * @param PHPMailer\PHPMailer\PHPMailer $phpmailer PHPMailer instance (passed by reference by WP).
 	 */
 	public function configure_phpmailer( $phpmailer ) {
 		$settings = FlowSMTP::get_settings();
+
+		if ( $this->in_fallback ) {
+			$settings = array_merge(
+				$settings,
+				array(
+					'host'       => $settings['fallback_host'],
+					'port'       => $settings['fallback_port'],
+					'encryption' => $settings['fallback_encryption'],
+					'auth'       => $settings['fallback_auth'],
+					'username'   => $settings['fallback_username'],
+					'password'   => $settings['fallback_password'],
+				)
+			);
+		}
 
 		if ( empty( $settings['host'] ) ) {
 			return; // Not configured yet; let WordPress use the default mail() transport.
@@ -50,8 +76,12 @@ class FlowSMTP_Mailer {
 		if ( ! empty( $settings['auth'] ) ) {
 			$phpmailer->SMTPAuth = true;
 			$phpmailer->Username = $settings['username'];
-			// A constant defined in wp-config.php always wins and never touches the database.
-			$phpmailer->Password = defined( 'FLOWSMTP_SMTP_PASSWORD' ) ? FLOWSMTP_SMTP_PASSWORD : self::decrypt( $settings['password'] );
+			if ( $this->in_fallback ) {
+				$phpmailer->Password = self::decrypt( $settings['password'] );
+			} else {
+				// A constant defined in wp-config.php always wins and never touches the database.
+				$phpmailer->Password = defined( 'FLOWSMTP_SMTP_PASSWORD' ) ? FLOWSMTP_SMTP_PASSWORD : self::decrypt( $settings['password'] );
+			}
 		} else {
 			$phpmailer->SMTPAuth = false;
 		}
@@ -68,6 +98,48 @@ class FlowSMTP_Mailer {
 				$phpmailer->SMTPAutoTLS = false;
 		}
 		// phpcs:enable
+	}
+
+	/**
+	 * When the primary connection fails, retry the same email once through the
+	 * fallback SMTP connection.
+	 *
+	 * Runs at priority 5, before the logger's failure handler (priority 10):
+	 * the fallback resend is suppressed from creating a new log row, so the
+	 * original row resolves to 'sent' (via wp_mail_succeeded) when the
+	 * fallback delivers, or to 'failed' with the fallback error when it does
+	 * not — without duplicate rows or duplicate retries.
+	 *
+	 * @param WP_Error $error Error from wp_mail_failed.
+	 */
+	public function maybe_fallback( $error ) {
+		if ( $this->in_fallback ) {
+			return; // Never chain fallbacks.
+		}
+
+		$settings = FlowSMTP::get_settings();
+		if ( empty( $settings['fallback'] ) || empty( $settings['fallback_host'] ) ) {
+			return;
+		}
+
+		$data = $error->get_error_data();
+		if ( empty( $data['to'] ) ) {
+			return; // No mail payload attached (e.g. failure outside wp_mail()).
+		}
+
+		$this->in_fallback = true;
+		$this->logger->suppress_logging( true );
+
+		wp_mail(
+			$data['to'],
+			isset( $data['subject'] ) ? $data['subject'] : '',
+			isset( $data['message'] ) ? $data['message'] : '',
+			isset( $data['headers'] ) ? $data['headers'] : '',
+			isset( $data['attachments'] ) ? $data['attachments'] : array()
+		);
+
+		$this->logger->suppress_logging( false );
+		$this->in_fallback = false;
 	}
 
 	/**
