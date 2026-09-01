@@ -11,6 +11,7 @@
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       flow-smtp
+ * Network:           true
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -26,7 +27,7 @@ define( 'FLOWSMTP_OPTION_KEY', 'flowsmtp_settings' );
 require_once FLOWSMTP_DIR . 'includes/class-flowsmtp.php';
 
 /**
- * Create or upgrade the email log table.
+ * Create or upgrade the email log table for the current site.
  *
  * dbDelta() adds any missing columns, so this doubles as the migration path
  * for sites upgrading from an earlier version.
@@ -71,12 +72,9 @@ function flowsmtp_create_tables() {
 }
 
 /**
- * Activation: create the email log table and seed defaults.
+ * Seed sensible defaults for the current site.
  */
-function flowsmtp_activate() {
-	flowsmtp_create_tables();
-
-	// Sensible defaults on first activation.
+function flowsmtp_seed_defaults() {
 	add_option(
 		FLOWSMTP_OPTION_KEY,
 		array(
@@ -94,6 +92,38 @@ function flowsmtp_activate() {
 			'log_retention' => 30,
 		)
 	);
+}
+
+/**
+ * Activation: create the email log table and seed defaults.
+ *
+ * On a network activation this runs for every existing site, so each site gets
+ * its own (isolated) email log table.
+ *
+ * @param bool $network_wide Whether the plugin was activated network-wide.
+ */
+function flowsmtp_activate( $network_wide = false ) {
+	if ( $network_wide && is_multisite() ) {
+		$site_ids = get_sites(
+			array(
+				'fields'                 => 'ids',
+				'number'                 => 0,
+				'update_site_meta_cache' => false,
+			)
+		);
+
+		foreach ( $site_ids as $site_id ) {
+			switch_to_blog( (int) $site_id );
+			flowsmtp_create_tables();
+			flowsmtp_seed_defaults();
+			restore_current_blog();
+		}
+
+		return;
+	}
+
+	flowsmtp_create_tables();
+	flowsmtp_seed_defaults();
 }
 register_activation_hook( __FILE__, 'flowsmtp_activate' );
 

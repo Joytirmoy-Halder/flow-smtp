@@ -56,6 +56,8 @@ class FlowSMTP_Multisite {
 	 * @return array
 	 */
 	public static function get_network_settings() {
+		$network = get_network();
+
 		$defaults = array(
 			'enforce'     => 0,
 			'provider'    => 'custom',
@@ -69,7 +71,7 @@ class FlowSMTP_Multisite {
 			'api_key'     => '',
 			'api_domain'  => '',
 			'from_email'  => get_site_option( 'admin_email' ),
-			'from_name'   => get_network()->site_name,
+			'from_name'   => $network ? $network->site_name : '',
 			'force_from'  => 1,
 		);
 
@@ -154,13 +156,21 @@ class FlowSMTP_Multisite {
 			return;
 		}
 
-		// Only if the plugin is actually active for that site (or network-wide).
+		if ( ! function_exists( 'is_plugin_active_for_network' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		// Only if the plugin is active network-wide; otherwise activation on that
+		// site will create the table itself.
 		if ( ! is_plugin_active_for_network( plugin_basename( FLOWSMTP_FILE ) ) ) {
 			return;
 		}
 
 		switch_to_blog( (int) $site->blog_id );
 		flowsmtp_create_tables();
+		if ( function_exists( 'flowsmtp_seed_defaults' ) ) {
+			flowsmtp_seed_defaults();
+		}
 		restore_current_blog();
 	}
 
