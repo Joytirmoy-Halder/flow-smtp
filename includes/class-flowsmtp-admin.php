@@ -123,7 +123,7 @@ class FlowSMTP_Admin {
 			return;
 		}
 
-		wp_enqueue_style( 'flowsmtp-admin', FLOWSMTP_URL . 'assets/css/admin.css', array(), FLOWSMTP_VERSION );
+		wp_enqueue_style( 'flowsmtp-admin', FLOWSMTP_URL . 'assets/css/admin.css', array( 'dashicons' ), FLOWSMTP_VERSION );
 		wp_enqueue_script( 'flowsmtp-admin', FLOWSMTP_URL . 'assets/js/admin.js', array( 'jquery' ), FLOWSMTP_VERSION, true );
 
 		wp_localize_script(
@@ -134,11 +134,12 @@ class FlowSMTP_Admin {
 				'nonce'   => wp_create_nonce( 'flowsmtp_admin' ),
 				'presets' => FlowSMTP_Providers::all(),
 				'i18n'    => array(
-					'sending'   => __( 'Sending…', 'flow-smtp' ),
-					'resending' => __( 'Resending…', 'flow-smtp' ),
-					'checking'  => __( 'Checking…', 'flow-smtp' ),
+					'sending'     => __( 'Sending…', 'flow-smtp' ),
+					'resending'   => __( 'Resending…', 'flow-smtp' ),
+					'checking'    => __( 'Checking…', 'flow-smtp' ),
 					'confirmDelete' => __( 'Delete the selected log entries? This cannot be undone.', 'flow-smtp' ),
-					'docs'      => __( 'Setup guide', 'flow-smtp' ),
+					'docs'        => __( 'Setup guide', 'flow-smtp' ),
+					'missingFile' => __( 'File missing', 'flow-smtp' ),
 				),
 			)
 		);
@@ -544,6 +545,56 @@ class FlowSMTP_Admin {
 	}
 
 	/**
+	 * Parse the stored attachments column into a display-friendly list.
+	 *
+	 * Handles serialized arrays, JSON arrays and newline/comma separated paths.
+	 *
+	 * @param mixed $raw Raw column value.
+	 * @return array[] List of arrays with name, path, size and exists keys.
+	 */
+	private static function parse_attachments( $raw ) {
+		if ( empty( $raw ) ) {
+			return array();
+		}
+
+		$list = maybe_unserialize( $raw );
+
+		if ( is_string( $list ) ) {
+			$decoded = json_decode( $list, true );
+			$list    = is_array( $decoded ) ? $decoded : preg_split( '/[\r\n,]+/', $list );
+		}
+
+		if ( ! is_array( $list ) ) {
+			return array();
+		}
+
+		$items = array();
+
+		foreach ( $list as $path ) {
+			if ( ! is_string( $path ) ) {
+				continue;
+			}
+
+			$path = trim( $path );
+			if ( '' === $path ) {
+				continue;
+			}
+
+			$exists = @file_exists( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$size   = $exists ? @filesize( $path ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+			$items[] = array(
+				'name'   => basename( $path ),
+				'path'   => $path,
+				'size'   => false !== $size ? size_format( (int) $size ) : '',
+				'exists' => (bool) $exists,
+			);
+		}
+
+		return $items;
+	}
+
+	/**
 	 * Render the logs table.
 	 *
 	 * @param string $status Filter by status ('' = all).
@@ -616,12 +667,18 @@ class FlowSMTP_Admin {
 					<tr><td colspan="6" class="flowsmtp-empty"><?php esc_html_e( 'No emails logged yet.', 'flow-smtp' ); ?></td></tr>
 				<?php else : ?>
 					<?php foreach ( $result['items'] as $row ) : ?>
+						<?php $files = self::parse_attachments( $row->attachments ); ?>
 						<tr>
 							<td class="col-check"><input type="checkbox" class="flowsmtp-check" value="<?php echo esc_attr( $row->id ); ?>" /></td>
 							<td><?php echo esc_html( $row->mail_to ); ?></td>
 							<td>
 								<?php echo esc_html( wp_trim_words( $row->subject, 10 ) ); ?>
 								<?php if ( $row->is_test ) : ?><span class="flowsmtp-badge is-test"><?php esc_html_e( 'Test', 'flow-smtp' ); ?></span><?php endif; ?>
+								<?php if ( $files ) : ?>
+									<span class="flowsmtp-clip" title="<?php echo esc_attr( implode( ', ', wp_list_pluck( $files, 'name' ) ) ); ?>">
+										<span class="dashicons dashicons-paperclip"></span><?php echo esc_html( count( $files ) ); ?>
+									</span>
+								<?php endif; ?>
 							</td>
 							<td>
 								<span class="flowsmtp-badge is-<?php echo esc_attr( $row->status ); ?>"><?php echo esc_html( ucfirst( $row->status ) ); ?></span>
@@ -676,7 +733,7 @@ class FlowSMTP_Admin {
 		header( 'Content-Disposition: attachment; filename=flowsmtp-logs-' . gmdate( 'Ymd-His' ) . '.csv' );
 
 		$out = fopen( 'php://output', 'w' );
-		fputcsv( $out, array( 'ID', 'To', 'Subject', 'Status', 'Test', 'Retries', 'Error', 'Created (site time)', 'Updated (site time)' ) );
+		fputcsv( $out, array( 'ID', 'To', 'Subject', 'Status', 'Test', 'Retries', 'Attachments', 'Error', 'Created (site time)', 'Updated (site time)' ) );
 
 		$page     = 1;
 		$per_page = 500;
@@ -692,6 +749,8 @@ class FlowSMTP_Admin {
 			);
 
 			foreach ( $result['items'] as $row ) {
+				$files = self::parse_attachments( $row->attachments );
+
 				fputcsv(
 					$out,
 					array(
@@ -701,6 +760,7 @@ class FlowSMTP_Admin {
 						$row->status,
 						$row->is_test ? 'yes' : 'no',
 						(int) $row->retries,
+						self::csv_safe( implode( ' | ', wp_list_pluck( $files, 'name' ) ) ),
 						self::csv_safe( $row->error_message ),
 						$row->created_at,
 						$row->updated_at,
@@ -784,15 +844,16 @@ class FlowSMTP_Admin {
 
 		wp_send_json_success(
 			array(
-				'to'      => $log->mail_to,
-				'subject' => $log->subject,
+				'to'          => $log->mail_to,
+				'subject'     => $log->subject,
 				// Sanitized server-side; additionally rendered inside a sandboxed iframe client-side.
-				'message' => wp_kses_post( $log->message ),
-				'headers' => $log->headers,
-				'status'  => $log->status,
-				'error'   => $log->error_message,
-				'date'    => mysql2date( 'M j, Y g:i a', $log->created_at ),
-				'retries' => (int) $log->retries,
+				'message'     => wp_kses_post( $log->message ),
+				'headers'     => $log->headers,
+				'status'      => $log->status,
+				'error'       => $log->error_message,
+				'date'        => mysql2date( 'M j, Y g:i a', $log->created_at ),
+				'retries'     => (int) $log->retries,
+				'attachments' => self::parse_attachments( $log->attachments ),
 			)
 		);
 	}

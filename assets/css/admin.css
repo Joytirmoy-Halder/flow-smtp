@@ -219,6 +219,40 @@
 .flowsmtp-table .col-actions { white-space: nowrap; }
 .flowsmtp-empty { text-align: center; color: var(--fsm-muted); padding: 32px 10px !important; }
 
+/* Attachment indicator in the log table */
+.flowsmtp-clip {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: 6px;
+	padding: 1px 6px 1px 4px;
+	border: 1px solid var(--fsm-border);
+	border-radius: 3px;
+	font-size: 11px;
+	color: var(--fsm-muted);
+	cursor: help;
+	vertical-align: middle;
+}
+.flowsmtp-clip .dashicons { font-size: 14px; width: 14px; height: 14px; line-height: 1; }
+
+/* Attachment list in the log viewer */
+.flowsmtp-attachments { list-style: none; margin: 0; padding: 0; }
+.flowsmtp-attachments li {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	border: 1px solid var(--fsm-border);
+	border-radius: var(--fsm-radius);
+	margin-bottom: 4px;
+	background: var(--fsm-bg);
+	font-size: 12px;
+}
+.flowsmtp-attachments li:last-child { margin-bottom: 0; }
+.flowsmtp-attachments .dashicons { font-size: 15px; width: 15px; height: 15px; color: var(--fsm-muted); flex-shrink: 0; }
+.flowsmtp-attachment-name { word-break: break-all; }
+.flowsmtp-attachment-size { color: var(--fsm-muted); margin-left: auto; white-space: nowrap; }
+
 /* Badges: subtle, bordered */
 .flowsmtp-badge {
 	display: inline-block;
