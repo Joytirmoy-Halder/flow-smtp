@@ -104,9 +104,10 @@ class FlowSMTP_Admin {
 			$clean['fallback_password'] = isset( $old['fallback_password'] ) ? $old['fallback_password'] : '';
 		}
 
-		$clean['from_email'] = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
-		$clean['from_name']  = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
-		$clean['force_from'] = empty( $input['force_from'] ) ? 0 : 1;
+		$clean['from_email']     = isset( $input['from_email'] ) && is_email( $input['from_email'] ) ? sanitize_email( $input['from_email'] ) : $old['from_email'];
+		$clean['from_name']      = isset( $input['from_name'] ) ? sanitize_text_field( $input['from_name'] ) : '';
+		$clean['force_from']     = empty( $input['force_from'] ) ? 0 : 1;
+		$clean['auto_plaintext'] = empty( $input['auto_plaintext'] ) ? 0 : 1;
 
 		// Test mode (email interception).
 		$clean['test_mode']        = empty( $input['test_mode'] ) ? 0 : 1;
@@ -474,6 +475,18 @@ class FlowSMTP_Admin {
 				<?php esc_html_e( 'Force this From address for all outgoing email', 'flow-smtp' ); ?>
 			</label>
 			<p class="flowsmtp-muted"><?php esc_html_e( 'Deliverability tip: the From domain should match the domain your SMTP provider signs (DKIM), or your emails may land in spam.', 'flow-smtp' ); ?></p>
+
+			<label class="flowsmtp-toggle">
+				<input type="checkbox" name="<?php echo esc_attr( FLOWSMTP_OPTION_KEY ); ?>[auto_plaintext]" value="1" <?php checked( $s['auto_plaintext'], 1 ); ?> />
+				<span class="flowsmtp-slider"></span>
+				<?php esc_html_e( 'Add a plain-text alternative to HTML emails', 'flow-smtp' ); ?>
+			</label>
+			<p class="flowsmtp-muted">
+				<?php esc_html_e( 'HTML-only messages trip SpamAssassin\'s MIME_HTML_ONLY rule and score worse with the large mailbox providers. When enabled, FlowSMTP derives a plain-text version of any HTML email that does not already supply one, so a proper multipart/alternative message is sent. Recommended, especially for contact form notifications.', 'flow-smtp' ); ?>
+				<?php if ( defined( 'FLOWSMTP_AUTO_PLAINTEXT' ) ) : ?>
+					<br /><strong><?php esc_html_e( 'The FLOWSMTP_AUTO_PLAINTEXT constant in wp-config.php currently overrides this setting.', 'flow-smtp' ); ?></strong>
+				<?php endif; ?>
+			</p>
 
 			<h2><?php esc_html_e( 'Test Mode', 'flow-smtp' ); ?></h2>
 			<label class="flowsmtp-toggle">
