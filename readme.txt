@@ -4,7 +4,7 @@ Tags: smtp, email, mail, email log, wp_mail
 Requires at least: 5.8
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.3.0
+Stable tag: 0.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -21,6 +21,7 @@ FlowSMTP routes all WordPress email through your SMTP server or your provider's 
 * One-click provider presets (Gmail, Outlook, SendGrid, Mailgun, Brevo, Postmark, Amazon SES, Zoho…)
 * Fallback SMTP connection: if the primary route fails, the email is immediately retried through a backup provider
 * Automatic background retries with exponential backoff (5, 10, 20 minutes…)
+* Automatic plain-text alternative for HTML email, so messages are not sent as single-part HTML
 * Force From email & name across all plugins
 
 **Logging & auditing**
@@ -72,7 +73,7 @@ Yes — open Failed Emails and click Resend. The retry count is tracked per emai
 Yes. Switch the sending method to HTTP API and use a SendGrid, Mailgun or Brevo API key.
 
 = Will my emails land in spam? =
-That depends mostly on DNS, not on the plugin. Use the Deliverability tab to verify SPF, DKIM and DMARC, and make sure your From domain matches the domain your provider signs.
+That depends mostly on DNS and on message content, not on the plugin. Use the Deliverability tab to verify SPF, DKIM and DMARC, and make sure your From domain matches the domain your provider signs. FlowSMTP also adds a plain-text alternative to HTML email automatically, which avoids the common single-part-HTML spam penalty.
 
 = How is my SMTP password stored? =
 Encrypted with libsodium (or AES-256-GCM). For maximum security, define `FLOWSMTP_SMTP_PASSWORD` in `wp-config.php` and it never touches the database.
@@ -81,6 +82,12 @@ Encrypted with libsodium (or AES-256-GCM). For maximum security, define `FLOWSMT
 Nothing, by default. Data removal is opt-in via Settings → Uninstall.
 
 == Changelog ==
+
+= 0.3.1 =
+* New: automatic plain-text alternative for HTML email. Messages sent as single-part `text/html` trigger SpamAssassin's MIME_HTML_ONLY rule and score worse with major mailbox providers; FlowSMTP now derives a text part automatically, producing a proper multipart/alternative message.
+* New: “Add a plain-text alternative to HTML emails” toggle under Settings → Sender (enabled by default), with a `FLOWSMTP_AUTO_PLAINTEXT` constant and `flowsmtp_auto_plaintext` / `flowsmtp_plaintext_body` filters.
+* Fixed: the `auto_plaintext` setting was discarded when saving the settings form.
+* Fixed: activation defaults now seed the plain-text alternative setting.
 
 = 0.3.0 =
 * New: provider presets with one-click SMTP autofill and setup links.
@@ -116,6 +123,9 @@ Nothing, by default. Data removal is opt-in via Settings → Uninstall.
 * Initial release: SMTP delivery, email logging, failed-email tracking & resend, test email system, modern admin UI.
 
 == Upgrade Notice ==
+
+= 0.3.1 =
+HTML emails now automatically include a plain-text alternative, which improves spam scores for contact-form notifications. Recommended for anyone whose form emails are landing in spam.
 
 = 0.3.0 =
 Adds API sending, fallback delivery, retries, tracking, multisite, WP-CLI and more. The email log table is upgraded automatically on first load.
