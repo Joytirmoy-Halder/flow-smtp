@@ -3,6 +3,27 @@
 All notable changes to FlowSMTP are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Automatic plain-text alternative for HTML email.** Messages sent as
+  `text/html` with no plain-text part are single-part HTML, which trips
+  SpamAssassin's `MIME_HTML_ONLY` rule and scores worse with the large mailbox
+  providers. FlowSMTP now derives a plain-text alternative from the HTML body
+  at `phpmailer_init`, producing a proper `multipart/alternative` message.
+  Contact-form notifications (Elementor, WPForms, Contact Form 7, …),
+  WooCommerce email and anything else that calls `wp_mail()` with an HTML body
+  benefit without any configuration.
+  - Links are rendered as `label (url)` so destinations survive the conversion.
+  - Images are dropped, so open-tracking pixels never leak into the text part.
+  - List items become `* ` bullets and table cells are joined with ` | `.
+  - HTML entities are decoded and runs of whitespace are collapsed.
+  - An `AltBody` supplied by the caller is never overwritten.
+  - Controlled by the `auto_plaintext` setting (on by default), the
+    `FLOWSMTP_AUTO_PLAINTEXT` constant, and the `flowsmtp_auto_plaintext` and
+    `flowsmtp_plaintext_body` filters.
+
 ## [0.3.0] — 2026-09-02
 
 Fifteen features shipped one per pull request into `develop`, plus a UI polish pass.
