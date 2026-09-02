@@ -3,6 +3,35 @@
 All notable changes to FlowSMTP are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-09-02
+
+### Fixed
+
+- **False “no DKIM key found” warning.** The common-selector scan was missing
+  `zmail`, the selector Zoho Mail actually publishes, so Zoho domains with a
+  valid DKIM key were reported as having none. This was the worst class of
+  check failure: it told users their authentication was broken when it was
+  correct, inviting them to “fix” working DNS.
+- The DMARC failure message passed two arguments into a string using
+  unnumbered `%s` placeholders, which cannot be reordered by translators and
+  is invalid under the WordPress i18n standards. The accompanying
+  `translators:` comment documented one placeholder instead of two.
+
+### Changed
+
+- Added the DKIM selectors used by Zoho (`zmail`), HubSpot (`hs1`, `hs2`),
+  Fastmail (`fm1`–`fm3`) and cPanel/Plesk hosts (`dkim`), and annotated every
+  entry with the provider that uses it so future additions stay
+  evidence-based. Amazon SES is deliberately excluded and documented as such,
+  because it issues randomised per-identity tokens that cannot be scanned for.
+- The DKIM scan now stops at the first valid key instead of continuing through
+  the whole list. Each selector costs up to two DNS lookups, so this keeps the
+  check faster than before despite the list growing from 14 to 21 entries;
+  only a genuinely missing key pays for a full scan.
+- Reworded the DKIM warning so it no longer asserts that DKIM is absent. It
+  now explains that FlowSMTP could not find a key under the selectors it knows
+  about, and points the user at their DNS or provider dashboard.
+
 ## [0.3.1] — 2026-09-02
 
 ### Added
