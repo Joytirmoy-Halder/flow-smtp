@@ -36,6 +36,10 @@ class FlowSMTP_Mailer {
 		add_filter( 'wp_mail_from', array( $this, 'filter_from_email' ), PHP_INT_MAX );
 		add_filter( 'wp_mail_from_name', array( $this, 'filter_from_name' ), PHP_INT_MAX );
 
+		// Runs just before configure_phpmailer so an explicitly supplied AltBody
+		// (set at PHP_INT_MAX, e.g. by send_test_email) still wins.
+		add_action( 'phpmailer_init', array( $this, 'maybe_set_alt_body' ), PHP_INT_MAX - 1 );
+
 		// Try the fallback connection before the logger records the failure (priority 5 < 10).
 		add_action( 'wp_mail_failed', array( $this, 'maybe_fallback' ), 5 );
 	}
@@ -98,6 +102,173 @@ class FlowSMTP_Mailer {
 				$phpmailer->SMTPAutoTLS = false;
 		}
 		// phpcs:enable
+	}
+
+	/**
+	 * Give HTML messages a plain-text alternative.
+	 *
+	 * A single-part text/html message trips SpamAssassin's MIME_HTML_ONLY rule
+	 * and scores worse with the large mailbox providers, which expect
+	 * multipart/alternative. Most plugins and themes call wp_mail() with an
+	 * HTML body and no plain-text part at all, so we derive one.
+	 *
+	 * An AltBody supplied by the caller is never overwritten.
+	 *
+	 * @param PHPMailer\PHPMailer\PHPMailer $phpmailer PHPMailer instance (by reference).
+	 */
+	public function maybe_set_alt_body( $phpmailer ) {
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+		if ( ! is_object( $phpmailer ) || ! isset( $phpmailer->ContentType ) ) {
+			return;
+		}
+
+		if ( 'text/html' !== strtolower( (string) $phpmailer->ContentType ) ) {
+			return; // Already a plain-text message.
+		}
+
+		if ( isset( $phpmailer->AltBody ) && '' !== trim( (string) $phpmailer->AltBody ) ) {
+			return; // The caller provided its own plain-text part.
+		}
+
+		if ( ! self::auto_plaintext_enabled() ) {
+			return;
+		}
+
+		$html = (string) $phpmailer->Body;
+		if ( '' === trim( $html ) ) {
+			return;
+		}
+
+		$text = self::html_to_text( $html );
+
+		/**
+		 * Filter the generated plain-text alternative.
+		 *
+		 * @param string $text Generated plain text.
+		 * @param string $html Original HTML body.
+		 */
+		$text = (string) apply_filters( 'flowsmtp_plaintext_body', $text, $html );
+
+		if ( '' !== trim( $text ) ) {
+			$phpmailer->AltBody = $text;
+		}
+		// phpcs:enable
+	}
+
+	/**
+	 * Whether automatic plain-text generation is enabled.
+	 *
+	 * Resolution order: the FLOWSMTP_AUTO_PLAINTEXT constant, then the
+	 * auto_plaintext setting, then the flowsmtp_auto_plaintext filter.
+	 *
+	 * @return bool
+	 */
+	public static function auto_plaintext_enabled() {
+		if ( defined( 'FLOWSMTP_AUTO_PLAINTEXT' ) ) {
+			$enabled = (bool) FLOWSMTP_AUTO_PLAINTEXT;
+		} else {
+			$settings = FlowSMTP::get_settings();
+			$enabled  = ! empty( $settings['auto_plaintext'] );
+		}
+
+		/**
+		 * Filter whether a plain-text alternative is generated for HTML email.
+		 *
+		 * @param bool $enabled Whether generation is enabled.
+		 */
+		return (bool) apply_filters( 'flowsmtp_auto_plaintext', $enabled );
+	}
+
+	/**
+	 * Convert an HTML email body into readable plain text.
+	 *
+	 * Deliberately conservative: no DOM parsing, no external dependencies, and
+	 * it never throws on malformed markup. Links keep their URLs, images are
+	 * dropped (a tracking pixel has no plain-text meaning), and block-level
+	 * elements become line breaks.
+	 *
+	 * @param string $html HTML body.
+	 * @return string Plain text, or an empty string when nothing usable remains.
+	 */
+	public static function html_to_text( $html ) {
+		$text = (string) $html;
+
+		if ( '' === trim( $text ) ) {
+			return '';
+		}
+
+		$original = $text;
+
+		// Remove content that is never rendered to the reader.
+		$text = preg_replace( '#<(script|style|head|title)\b[^>]*>.*?</\1>#is', '', $text );
+		$text = preg_replace( '#<!--.*?-->#s', '', $text );
+
+		// Images carry no plain-text meaning; this also drops tracking pixels.
+		$text = preg_replace( '#<img\b[^>]*>#i', '', $text );
+
+		// Keep link targets: "label (https://example.com)".
+		$text = preg_replace_callback(
+			'#<a\b[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is',
+			array( __CLASS__, 'link_to_text' ),
+			$text
+		);
+
+		// Structural markup becomes whitespace a reader can follow.
+		$text = preg_replace( '#<hr\b[^>]*>#i', "\n---\n", $text );
+		$text = preg_replace( '#</t[dh]>\s*<t[dh]\b[^>]*>#i', ' | ', $text );
+		$text = preg_replace( '#<li\b[^>]*>#i', "\n* ", $text );
+		$text = preg_replace( '#</li>#i', "\n", $text );
+		$text = preg_replace( '#<br\s*/?>#i', "\n", $text );
+		$text = preg_replace( '#<(p|div|tr|h[1-6]|blockquote)\b[^>]*>#i', "\n", $text );
+		$text = preg_replace( '#</(p|div|tr|table|h[1-6]|ul|ol|blockquote|section|article|header|footer)>#i', "\n\n", $text );
+
+		// Anything left over is decoration.
+		$text = wp_strip_all_tags( (string) $text );
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		// Normalise whitespace.
+		$text = str_replace( array( "\r\n", "\r" ), "\n", $text );
+		$text = str_replace( "\xc2\xa0", ' ', $text ); // Non-breaking space.
+		$text = preg_replace( '#[ \t]{2,}#', ' ', $text );
+		$text = preg_replace( '#[ \t]+\n#', "\n", $text );
+		$text = preg_replace( '#\n{3,}#', "\n\n", $text );
+
+		// A regex failure (e.g. PREG backtrack limit on a huge body) returns null.
+		if ( ! is_string( $text ) || '' === trim( $text ) ) {
+			$text = wp_strip_all_tags( $original );
+		}
+
+		return trim( (string) $text );
+	}
+
+	/**
+	 * Render a single anchor tag as plain text. Callback for html_to_text().
+	 *
+	 * @param array $matches Regex matches: 2 = href, 3 = inner HTML.
+	 * @return string
+	 */
+	private static function link_to_text( $matches ) {
+		$url   = trim( html_entity_decode( $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+		$label = trim( wp_strip_all_tags( $matches[3] ) );
+
+		if ( '' === $url || 0 === stripos( $url, 'javascript:' ) ) {
+			return $label;
+		}
+
+		if ( '' === $label ) {
+			return $url;
+		}
+
+		// Don't duplicate when the label already is the destination.
+		if ( 0 === strcasecmp( $label, $url ) ) {
+			return $url;
+		}
+
+		if ( 0 === stripos( $url, 'mailto:' ) && 0 === strcasecmp( $label, substr( $url, 7 ) ) ) {
+			return $label;
+		}
+
+		return $label . ' (' . $url . ')';
 	}
 
 	/**
@@ -212,7 +383,8 @@ class FlowSMTP_Mailer {
 		$subject = sprintf( '[FlowSMTP] Test email from %s', wp_parse_url( home_url(), PHP_URL_HOST ) );
 		$plain   = "Congratulations!\n\nThis test email was sent successfully by FlowSMTP.\nYour SMTP settings are working.\n\n-- FlowSMTP";
 
-		// Provide a plain-text alternative for the HTML version (better spam scores).
+		// Provide a hand-written plain-text alternative for the HTML version,
+		// which reads better than the automatically generated one.
 		$set_alt_body = function ( $phpmailer ) use ( $plain ) {
 			$phpmailer->AltBody = $plain; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 		};
