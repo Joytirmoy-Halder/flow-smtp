@@ -3,7 +3,7 @@
 All notable changes to FlowSMTP are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.1] — 2026-09-02
 
 ### Added
 
@@ -25,6 +25,12 @@ All notable changes to FlowSMTP are documented here. This project follows
     and the `flowsmtp_auto_plaintext` and `flowsmtp_plaintext_body` filters.
     When the constant is defined, the settings screen says so, since the
     constant wins over the stored value at runtime.
+
+### Fixed
+
+- `sanitize_settings()` did not preserve `auto_plaintext`, so saving the
+  settings form silently discarded the value and fell back to the default.
+- Activation defaults did not seed `auto_plaintext`.
 
 ## [0.3.0] — 2026-09-02
 
@@ -91,5 +97,5 @@ Fifteen features shipped one per pull request into `develop`, plus a UI polish p
 
 ## [0.1.0]
 
-- Initial release: SMTP delivery, email logging, failed-email tracking and
-  resend, test email system, admin UI.
+- Initial release: SMTP delivery, email logging, failed-email tracking & resend,
+  test email system, admin UI.
