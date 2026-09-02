@@ -20,9 +20,11 @@ All notable changes to FlowSMTP are documented here. This project follows
   - List items become `* ` bullets and table cells are joined with ` | `.
   - HTML entities are decoded and runs of whitespace are collapsed.
   - An `AltBody` supplied by the caller is never overwritten.
-  - Controlled by the `auto_plaintext` setting (on by default), the
-    `FLOWSMTP_AUTO_PLAINTEXT` constant, and the `flowsmtp_auto_plaintext` and
-    `flowsmtp_plaintext_body` filters.
+  - Controlled by the **Add a plain-text alternative to HTML emails** toggle in
+    Settings → Sender (on by default), the `FLOWSMTP_AUTO_PLAINTEXT` constant,
+    and the `flowsmtp_auto_plaintext` and `flowsmtp_plaintext_body` filters.
+    When the constant is defined, the settings screen says so, since the
+    constant wins over the stored value at runtime.
 
 ## [0.3.0] — 2026-09-02
 
