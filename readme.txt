@@ -4,7 +4,7 @@ Tags: smtp, email, mail, email log, wp_mail
 Requires at least: 5.8
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.3.1
+Stable tag: 0.3.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,9 @@ Yes. Switch the sending method to HTTP API and use a SendGrid, Mailgun or Brevo 
 = Will my emails land in spam? =
 That depends mostly on DNS and on message content, not on the plugin. Use the Deliverability tab to verify SPF, DKIM and DMARC, and make sure your From domain matches the domain your provider signs. FlowSMTP also adds a plain-text alternative to HTML email automatically, which avoids the common single-part-HTML spam penalty.
 
+= The Deliverability tab says no DKIM key was found, but my provider says DKIM is enabled. =
+Providers publish DKIM under their own selector names. FlowSMTP scans the selectors used by the major providers, but it cannot guess randomised ones (Amazon SES, for example). Find the record ending in `._domainkey` in your DNS or provider dashboard, enter that selector name in the DKIM selector field, and re-run the check.
+
 = How is my SMTP password stored? =
 Encrypted with libsodium (or AES-256-GCM). For maximum security, define `FLOWSMTP_SMTP_PASSWORD` in `wp-config.php` and it never touches the database.
 
@@ -82,6 +85,13 @@ Encrypted with libsodium (or AES-256-GCM). For maximum security, define `FLOWSMT
 Nothing, by default. Data removal is opt-in via Settings → Uninstall.
 
 == Changelog ==
+
+= 0.3.2 =
+* Fixed: the Deliverability check reported “no DKIM key found” for Zoho Mail domains that had a perfectly valid key. Zoho publishes under the `zmail` selector, which was missing from the scan list.
+* Improved: added the DKIM selectors used by Zoho, HubSpot, Fastmail and cPanel/Plesk hosts, and documented which provider each selector belongs to.
+* Improved: the DKIM scan now stops at the first key it finds, so the check is faster than before despite the longer selector list.
+* Improved: clearer wording when no DKIM key is found — it no longer asserts that DKIM is missing, since providers may use a selector FlowSMTP cannot guess.
+* Fixed: the DMARC failure message used unnumbered placeholders, which made it impossible to translate correctly.
 
 = 0.3.1 =
 * New: automatic plain-text alternative for HTML email. Messages sent as single-part `text/html` trigger SpamAssassin's MIME_HTML_ONLY rule and score worse with major mailbox providers; FlowSMTP now derives a text part automatically, producing a proper multipart/alternative message.
@@ -123,6 +133,9 @@ Nothing, by default. Data removal is opt-in via Settings → Uninstall.
 * Initial release: SMTP delivery, email logging, failed-email tracking & resend, test email system, modern admin UI.
 
 == Upgrade Notice ==
+
+= 0.3.2 =
+Fixes a false “no DKIM key found” warning on the Deliverability tab for Zoho Mail and several other providers. Recommended if the DKIM check disagrees with your provider.
 
 = 0.3.1 =
 HTML emails now automatically include a plain-text alternative, which improves spam scores for contact-form notifications. Recommended for anyone whose form emails are landing in spam.
