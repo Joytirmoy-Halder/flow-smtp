@@ -14,23 +14,35 @@ class FlowSMTP_Deliverability {
 	/**
 	 * Common DKIM selectors to scan when the user does not provide one.
 	 *
+	 * These are the selector names real providers publish, so the list is
+	 * deliberately provider-specific rather than a list of plausible guesses.
+	 * Amazon SES is absent on purpose: it issues randomised per-identity
+	 * tokens that cannot be guessed, so SES users must supply the selector.
+	 *
 	 * @var string[]
 	 */
 	private static $dkim_selectors = array(
-		'default',
-		'google',
-		'selector1',
-		'selector2',
-		'k1',
-		'k2',
-		's1',
-		's2',
-		'mail',
-		'smtp',
-		'zoho',
-		'pm',
-		'mg',
-		'krs',
+		'default',   // Generic, and the cPanel/WHM default.
+		'dkim',      // Generic, common on cPanel and Plesk hosts.
+		'google',    // Google Workspace.
+		'selector1', // Microsoft 365.
+		'selector2', // Microsoft 365 (rotation key).
+		'zmail',     // Zoho Mail.
+		'zoho',      // Zoho (older accounts).
+		'k1',        // Mailchimp / Mandrill.
+		'k2',        // Mailchimp (rotation key).
+		's1',        // SendGrid.
+		's2',        // SendGrid (rotation key).
+		'pm',        // Postmark.
+		'mg',        // Mailgun.
+		'krs',       // Klaviyo.
+		'hs1',       // HubSpot.
+		'hs2',       // HubSpot (rotation key).
+		'fm1',       // Fastmail.
+		'fm2',       // Fastmail (rotation key).
+		'fm3',       // Fastmail (rotation key).
+		'mail',      // Brevo and others.
+		'smtp',      // Generic.
 	);
 
 	/**
@@ -110,26 +122,23 @@ class FlowSMTP_Deliverability {
 	 */
 	private static function check_dkim( $domain, $selector = '' ) {
 		$selector  = sanitize_text_field( $selector );
-		$selectors = '' !== $selector ? array( $selector ) : self::$dkim_selectors;
+		$explicit  = '' !== $selector;
+		$selectors = $explicit ? array( $selector ) : self::$dkim_selectors;
 		$found     = array();
 
 		foreach ( $selectors as $sel ) {
-			$host = $sel . '._domainkey.' . $domain;
-
-			foreach ( self::txt_records( $host ) as $txt ) {
-				if ( false !== stripos( $txt, 'v=dkim1' ) || false !== stripos( $txt, 'k=rsa' ) || false !== stripos( $txt, 'p=' ) ) {
-					$found[] = $sel;
-					break;
-				}
+			if ( ! self::dkim_key_exists( $sel . '._domainkey.' . $domain ) ) {
+				continue;
 			}
 
-			if ( ! in_array( $sel, $found, true ) ) {
-				// Many providers publish DKIM as a CNAME to their own record.
-				$cname = @dns_get_record( $host, DNS_CNAME ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				if ( ! empty( $cname ) ) {
-					$found[] = $sel;
-				}
-			}
+			$found[] = $sel;
+
+			/*
+			 * One valid key is all we need to report a pass. Stopping here keeps
+			 * the scan fast for correctly configured domains, which matters
+			 * because each selector costs up to two DNS lookups.
+			 */
+			break;
 		}
 
 		if ( $found ) {
@@ -142,7 +151,7 @@ class FlowSMTP_Deliverability {
 			);
 		}
 
-		if ( '' !== $selector ) {
+		if ( $explicit ) {
 			return array(
 				'id'     => 'dkim',
 				'label'  => 'DKIM',
@@ -156,8 +165,27 @@ class FlowSMTP_Deliverability {
 			'id'     => 'dkim',
 			'label'  => 'DKIM',
 			'status' => 'warn',
-			'detail' => __( 'No DKIM key found under common selectors. If your provider gave you a specific selector, enter it above and re-run — sending without DKIM significantly hurts deliverability.', 'flow-smtp' ),
+			'detail' => __( 'No DKIM key found under the selectors FlowSMTP knows about. This does not necessarily mean DKIM is missing — providers use their own selector names, and some (such as Amazon SES) issue random ones. Check your DNS or provider dashboard for a record ending in ._domainkey, then enter that selector above and re-run.', 'flow-smtp' ),
 		);
+	}
+
+	/**
+	 * Whether a DKIM key is published at the given _domainkey host.
+	 *
+	 * @param string $host Full DKIM host (selector._domainkey.domain).
+	 * @return bool
+	 */
+	private static function dkim_key_exists( $host ) {
+		foreach ( self::txt_records( $host ) as $txt ) {
+			if ( false !== stripos( $txt, 'v=dkim1' ) || false !== stripos( $txt, 'k=rsa' ) || false !== stripos( $txt, 'p=' ) ) {
+				return true;
+			}
+		}
+
+		// Many providers publish DKIM as a CNAME pointing at their own record.
+		$cname = @dns_get_record( $host, DNS_CNAME ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+		return ! empty( $cname );
 	}
 
 	/**
@@ -180,8 +208,8 @@ class FlowSMTP_Deliverability {
 				'id'     => 'dmarc',
 				'label'  => 'DMARC',
 				'status' => 'fail',
-				/* translators: %s: domain name. */
-				'detail' => sprintf( __( 'No DMARC record found. Add a TXT record at _dmarc.%s such as "v=DMARC1; p=quarantine; rua=mailto:dmarc@%s". Gmail and Yahoo now require DMARC for bulk senders.', 'flow-smtp' ), $domain, $domain ),
+				/* translators: 1: domain name, 2: domain name. */
+				'detail' => sprintf( __( 'No DMARC record found. Add a TXT record at _dmarc.%1$s such as "v=DMARC1; p=quarantine; rua=mailto:dmarc@%2$s". Gmail and Yahoo now require DMARC for bulk senders.', 'flow-smtp' ), $domain, $domain ),
 			);
 		}
 
