@@ -153,6 +153,7 @@ final class FlowSMTP {
 			'from_email'          => get_option( 'admin_email' ),
 			'from_name'           => get_option( 'blogname' ),
 			'force_from'          => 1,
+			'auto_plaintext'      => 1,
 			'test_mode'           => 0,
 			'test_mode_action'    => 'redirect',
 			'test_mode_to'        => get_option( 'admin_email' ),
